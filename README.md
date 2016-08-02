@@ -56,8 +56,9 @@ Finetuning is not supported yet.
 
 # Acknowledge
 I learned a lot from these following repositories.
-[neuraltalk2](https://github.com/karpathy/neuraltalk2)(of course)
-[colornet](https://github.com/pavelgonchar/colornet)(for using pretrained vgg-16)
-[tensorflow-vgg16](https://github.com/ry/tensorflow-vgg16.git)(tensorflow version of vgg-16)
-[char-rnn-tensorflow](https://github.com/sherjilozair/char-rnn-tensorflow)(for using the RNN wrapper provided by tensorflow)
-[https://github.com/jazzsaxmafia/show_and_tell.tensorflow](Gave me idea how to dump option information. Furthermore, this has the same algorithm as mine but with different code structure)
+
+- [neuraltalk2](https://github.com/karpathy/neuraltalk2)(of course)
+- [colornet](https://github.com/pavelgonchar/colornet)(for using pretrained vgg-16)
+- [tensorflow-vgg16](https://github.com/ry/tensorflow-vgg16.git)(tensorflow version of vgg-16)
+- [char-rnn-tensorflow](https://github.com/sherjilozair/char-rnn-tensorflow)(for using the RNN wrapper provided by tensorflow)
+- [show_and_tell.tensorflow](https://github.com/jazzsaxmafia/show_and_tell.tensorflow)(Gave me idea how to dump option information. Furthermore, this has the same algorithm as mine but with different code structure)
