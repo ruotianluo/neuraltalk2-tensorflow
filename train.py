@@ -43,8 +43,6 @@ def train(opt):
     model.build_model()
     model.build_generator()
 
-    saver = tf.train.Saver(max_to_keep=10)
-
     with tf.Session() as sess:
         loader.assign_session(sess)
 
@@ -56,13 +54,15 @@ def train(opt):
         sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate))
 
         while True:
+            # Assure in training mode
+            sess.run(tf.assign(model.training, True))
+
             start = time.time()
             data = loader.get_batch(0)
             print('Read data:', time.time() - start)
 
-
             start = time.time()
-            feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks'], model.keep_prob: 1 - model.dropout}
+            feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks']}
             if iteration >= opt.finetune_cnn_after or opt.finetune_cnn_after == -1:
                 train_loss, merged, _ = sess.run([model.cost, model.summaries, model.train_op], feed)
             else:
@@ -78,8 +78,8 @@ def train(opt):
 
             # Write the training loss summary
             if (iteration % opt.losses_log_every == 0):
-                model.writer.add_summary(merged, iteration)
-                model.writer.flush()
+                model.summary_writer.add_summary(merged, iteration)
+                model.summary_writer.flush()
 
             # make evaluation on validation set, and save model
             if (iteration % opt.save_checkpoint_every == 0):
@@ -88,11 +88,11 @@ def train(opt):
                 val_loss, predictions, lang_stats = eval_split(sess, model, loader, eval_kwargs)
                 # Write into summary
                 summary = tf.Summary(value=[tf.Summary.Value(tag='validation loss', simple_value=val_loss)])
-                model.writer.add_summary(summary, iteration)
+                model.summary_writer.add_summary(summary, iteration)
                 for k,v in lang_stats.iteritems():
                     summary = tf.Summary(value=[tf.Summary.Value(tag=k, simple_value=v)])
-                    model.writer.add_summary(summary, iteration)
-                model.writer.flush()
+                    model.summary_writer.add_summary(summary, iteration)
+                model.summary_writer.flush()
 
                 # Save model if is improving on validation result
                 if opt.language_eval == 1:
@@ -103,8 +103,7 @@ def train(opt):
                 if best_val_score is None or current_score > best_val_score: # if true
                     best_val_score = current_score
                     checkpoint_path = os.path.join(opt.checkpoint_path, 'model.ckpt')
-                    #saver.save(sess, checkpoint_path, global_step = iteration)
-                    saver.save(sess, checkpoint_path, global_step = iteration)
+                    model.saver.save(sess, checkpoint_path, global_step = iteration)
                     print("model saved to {}".format(checkpoint_path))
 
                     # Dump miscalleous informations
@@ -126,6 +125,7 @@ def eval_split(sess, model, loader, eval_kwargs):
     language_eval = eval_kwargs.get('language_eval', 1)
     dataset = eval_kwargs.get('dataset', 'coco')
 
+    sess.run(tf.assign(model.training, False))
     loader.reset_iterator(split)
 
     n = 0
@@ -137,7 +137,7 @@ def eval_split(sess, model, loader, eval_kwargs):
         n = n + loader.batch_size
 
         # forward the model to get loss
-        feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks'], model.keep_prob: 1.0}
+        feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks']}
         loss = sess.run(model.cost, feed)
 
         loss_sum = loss_sum + loss

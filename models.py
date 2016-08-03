@@ -29,11 +29,13 @@ class Model():
 
     def initialize(self, sess):
         sess.run(tf.initialize_all_variables())
-        saver = tf.train.Saver(tf.all_variables())
-        if self.opt.start_from is not None:
-            saver.restore(sess, self.opt.ckpt.model_checkpoint_path)
 
-        self.writer = tf.train.SummaryWriter(self.opt.checkpoint_path, sess.graph)
+        # Saver
+        self.saver = tf.train.Saver(tf.trainable_variables(), max_to_keep=10)
+        if self.opt.start_from is not None:
+            self.saver.restore(sess, self.opt.ckpt.model_checkpoint_path)
+
+        self.summary_writer = tf.train.SummaryWriter(self.opt.checkpoint_path, sess.graph)
 
     def __init__(self, opt):
         self.vocab_size = opt.vocab_size
@@ -48,13 +50,13 @@ class Model():
 
         self.opt = opt
 
+        # Variable indicating in training mode or evaluation mode
+        self.training = tf.Variable(True, trainable = False, name = "training")
+
         # Input varaibles
         self.images = tf.placeholder(tf.float32, [self.batch_size, 224, 224, 3], name = "images")
         self.labels = tf.placeholder(tf.int32, [self.batch_size * self.seq_per_img, self.seq_length + 2], name = "labels")
         self.masks = tf.placeholder(tf.float32, [self.batch_size * self.seq_per_img, self.seq_length + 2], name = "masks")
-
-        # placeholder for drop out probability
-        self.keep_prob = tf.placeholder("float", name = "keep_probs")
 
         # VGG 16
         
@@ -91,6 +93,11 @@ class Model():
             cell_fn = rnn_cell.BasicLSTMCell
         else:
             raise Exception("RNN type not supported: {}".format(opt.rnn_type))
+
+        self.keep_prob = tf.cond(self.training, 
+                            lambda : tf.constant(1 - opt.drop_prob_lm),
+                            lambda : tf.constant(1.0))
+
         cell = rnn_cell.DropoutWrapper(cell_fn(self.rnn_size, state_is_tuple = True), 1.0, self.keep_prob)
 
         self.cell = cell = rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)

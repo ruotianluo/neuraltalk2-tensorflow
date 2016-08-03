@@ -9,7 +9,7 @@ Without finetuning on VGG, my code gives CIDEr score ~0.65 on validation set (in
 Currently if you want to use my code, you need to train the model from scratch (except VGG-16).
 
 # To do:
-- Finetuning VGG (I'm still a little not comfortable about the way changing from training mode to evaluation mode)
+- Finetuning VGG
 - Tensorflow stype file loading. (Multi-thread image loading)
 - Pretrained model
 - Test code on single image
