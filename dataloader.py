@@ -10,12 +10,8 @@ import scipy.misc
 
 class DataLoader():
     
-    def assign_session(self, sess):
-        self.sess = sess
-
-    def __init__(self, opt, sess = None):
+    def __init__(self, opt):
         self.opt = opt
-        self.sess = sess
         self.image_path = self.opt.image_path
         self.batch_size = self.opt.batch_size
         self.seq_per_img = self.opt.seq_per_img

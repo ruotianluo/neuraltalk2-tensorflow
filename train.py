@@ -22,7 +22,6 @@ def train(opt):
     opt.vocab_size = loader.vocab_size
     model = models.setup(opt)
 
-    
     infos = {}
     if opt.start_from is not None:
         # open old infos and check if models are compatible
@@ -44,20 +43,21 @@ def train(opt):
     model.build_generator()
 
     with tf.Session() as sess:
-        loader.assign_session(sess)
-
         # Initialize the variables, and restore the variables form checkpoint if there is.
         # And initialize the writer
         model.initialize(sess)
         
+        # Assign the learning rate
         sess.run(tf.assign(model.lr, opt.learning_rate * (opt.decay_rate ** epoch)))
         sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate))
 
         while True:
             # Assure in training mode
             sess.run(tf.assign(model.training, True))
+            sess.run(tf.assign(model.vgg16_training, True))
 
             start = time.time()
+            # Load data from train split (0)
             data = loader.get_batch(0)
             print('Read data:', time.time() - start)
 
@@ -66,6 +66,7 @@ def train(opt):
             if iteration >= opt.finetune_cnn_after or opt.finetune_cnn_after == -1:
                 train_loss, merged, _ = sess.run([model.cost, model.summaries, model.train_op], feed)
             else:
+                # Finetune the vgg
                 train_loss, merged, _, __ = sess.run([model.cost, model.self.summaries, model.train_op, model.cnn_train_op], feed)
             end = time.time()
             print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
@@ -84,9 +85,12 @@ def train(opt):
             # make evaluation on validation set, and save model
             if (iteration % opt.save_checkpoint_every == 0):
                 # eval model
-                eval_kwargs = {'val_images_use': opt.val_images_use, 'split': 1, 'language_eval': opt.language_eval, 'dataset': opt.input_json}
+                eval_kwargs = {'val_images_use': opt.val_images_use,
+                                'split': 1, # 1 means validation split
+                                'language_eval': opt.language_eval, 
+                                'dataset': opt.input_json}
                 val_loss, predictions, lang_stats = eval_split(sess, model, loader, eval_kwargs)
-                # Write into summary
+                # Write validation result into summary
                 summary = tf.Summary(value=[tf.Summary.Value(tag='validation loss', simple_value=val_loss)])
                 model.summary_writer.add_summary(summary, iteration)
                 for k,v in lang_stats.iteritems():
@@ -125,7 +129,10 @@ def eval_split(sess, model, loader, eval_kwargs):
     language_eval = eval_kwargs.get('language_eval', 1)
     dataset = eval_kwargs.get('dataset', 'coco')
 
+    # Make sure in the evaluation mode
     sess.run(tf.assign(model.training, False))
+    sess.run(tf.assign(model.vgg16_training, False))
+
     loader.reset_iterator(split)
 
     n = 0
@@ -144,8 +151,9 @@ def eval_split(sess, model, loader, eval_kwargs):
         loss_evals = loss_evals + 1
 
         # forward the model to also get generated samples for each image
-        feed = {model.images: data['images'], model.keep_prob: 1.0}
-        g_o,g_l,g_p, seq = sess.run([model.g_output, model.g_logits, model.g_probs, model.generator], feed)
+        feed = {model.images: data['images']}
+        #g_o,g_l,g_p, seq = sess.run([model.g_output, model.g_logits, model.g_probs, model.generator], feed)
+        seq = sess.run(model.generator, feed)
 
         #set_trace()
         sents = loader.decode_sequence(seq)
