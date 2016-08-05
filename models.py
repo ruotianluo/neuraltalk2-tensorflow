@@ -11,7 +11,7 @@ def setup(opt):
     # check compatibility if training is continued from previously saved model
     if opt.start_from is not None:
         # check if all necessary files exist 
-        assert os.path.isdir(opt.start_from)," %s must be a a path" % opt..start_from
+        assert os.path.isdir(opt.start_from)," %s must be a a path" % opt.start_from
         assert os.path.isfile(os.path.join(opt.start_from,"infos.pkl")),"infos.pkl file does not exist in path %s"%opt.start_from
         ckpt = tf.train.get_checkpoint_state(opt.start_from)
         assert ckpt,"No checkpoint found"
