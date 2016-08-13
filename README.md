@@ -10,7 +10,7 @@ Without finetuning on VGG, my code gives CIDEr score ~0.65 on validation set (in
 Currently if you want to use my code, you need to train the model from scratch (except VGG-16).
 
 # To do:
-- ~~Finetuning VGG~~
+- Finetuning VGG seems doesn't work. Need to be fixed.
 - ~~No need to initialize from npy when having saved weight.~~
 - Tensorflow stype file loading. (Multi-thread image loading)
 - Test of stacked LSTM. and also GRUs

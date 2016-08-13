@@ -11,6 +11,9 @@ import models
 from dataloader import *
 import eval_utils
 
+import os
+NUM_THREADS = int(os.environ['OMP_NUM_THREADS'])
+
 #from ipdb import set_trace
 
 def main():
@@ -42,7 +45,7 @@ def train(opt):
     model.build_model()
     model.build_generator()
 
-    with tf.Session() as sess:
+    with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
         # Initialize the variables, and restore the variables form checkpoint if there is.
         # And initialize the writer
         model.initialize(sess)
