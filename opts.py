@@ -7,10 +7,10 @@ def parse_opt():
                     help='path to the json file containing additional info and vocab')
     parser.add_argument('--input_h5', type=str, default='data/coco.json',
                     help='path to the h5file containing the preprocessed dataset')
-    parser.add_argument('--image_path', type=str, default='data/coco',
-                    help='image directory containing images')
-    parser.add_argument('--vocab_info', type=str, default='',
-                    help='The json file saving the vocabulary information')
+    #parser.add_argument('--image_path', type=str, default='data/coco',
+    #                help='image directory containing images')
+    #parser.add_argument('--vocab_info', type=str, default='',
+    #                help='The json file saving the vocabulary information')
     parser.add_argument('--cnn_model', type=str, default='models/vgg16.npy',
                     help='path to CNN tf model. Note this MUST be a VGGNet-16 right now.')
     parser.add_argument('--start_from', type=str, default=None,
@@ -50,14 +50,16 @@ def parse_opt():
                     help='RNN sequence length')
     parser.add_argument('--seq_per_img', type=int, default=5,
                     help='number of captions to sample for each image during training. Done for efficiency since CNN forward pass is expensive. E.g. coco has 5 sents/image')
-  
+    parser.add_argument('--beam_size', type=int, default=1,
+                    help='used when sample_max = 1, indicates number of beams in beam search. Usually 2 or 3 works well. More is not better. Set this to 1 for faster runtime but a bit worse performance.')
+
     #Optimization: for the Language Model
-    parser.add_argument('--learning_rate', type=float, default=0.0004,
+    parser.add_argument('--learning_rate', type=float, default=4e-4,
                     help='learning rate')
     parser.add_argument('--decay_rate', type=float, default=1,
                     help='decay rate for rmsprop')   
     #Optimization: for the CNN
-    parser.add_argument('--cnn_learning_rate', type=float, default=0.00005,
+    parser.add_argument('--cnn_learning_rate', type=float, default=1e-5,
                     help='learning rate for the CNN')
 
     # Evaluation/Checkpointing

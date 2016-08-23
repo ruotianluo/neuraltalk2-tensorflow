@@ -12,7 +12,6 @@ class DataLoader():
     
     def __init__(self, opt):
         self.opt = opt
-        self.image_path = self.opt.image_path
         self.batch_size = self.opt.batch_size
         self.seq_per_img = self.opt.seq_per_img
         self.seq_length = self.opt.seq_length
@@ -73,19 +72,20 @@ class DataLoader():
     def get_seq_length(self):
         return self.seq_length
 
-    def get_batch(self, split):
+    def get_batch(self, split, batch_size=None):
         split_ix = self.split_ix[split]
+        batch_size = batch_size or self.batch_size
 
-        img_batch = np.ndarray([self.batch_size, 224,224,3], dtype = 'float32')
-        label_batch = np.zeros([self.batch_size * self.seq_per_img, self.seq_length + 2], dtype = 'int')
-        mask_batch = np.zeros([self.batch_size * self.seq_per_img, self.seq_length + 2], dtype = 'float32')
+        img_batch = np.ndarray([batch_size, 224,224,3], dtype = 'float32')
+        label_batch = np.zeros([batch_size * self.seq_per_img, self.seq_length + 2], dtype = 'int')
+        mask_batch = np.zeros([batch_size * self.seq_per_img, self.seq_length + 2], dtype = 'float32')
 
         max_index = len(split_ix)
         wrapped = False
 
         infos = []
 
-        for i in range(self.batch_size):
+        for i in range(batch_size):
             ri = self.iterators[split]
             ri_next = ri + 1
             if ri_next >= max_index:

@@ -9,7 +9,7 @@ Without finetuning on VGG, my code gives CIDEr score ~0.65 on validation set (in
 
 Currently if you want to use my code, you need to train the model from scratch (except VGG-16).
 
-# To do:
+# TODO:
 - Finetuning VGG seems doesn't work. Need to be fixed.
 - ~~No need to initialize from npy when having saved weight.~~
 - Tensorflow stype file loading. (Multi-thread image loading)
@@ -17,7 +17,7 @@ Currently if you want to use my code, you need to train the model from scratch (
 - Pretrained model
 - Test code on single image
 - Schedule sampling
-- Beam search
+- ~~Beam search~~
 
 # Requirements
 Python 2.7
@@ -77,3 +77,4 @@ I learned a lot from these following repositories.
 - [huyng/tensorflow-vgg](https://github.com/huyng/tensorflow-vgg)(This may be my next attempt.)
 - [char-rnn-tensorflow](https://github.com/sherjilozair/char-rnn-tensorflow)(for using the RNN wrapper provided by tensorflow)
 - [show_and_tell.tensorflow](https://github.com/jazzsaxmafia/show_and_tell.tensorflow)(Gave me idea how to dump option information. Furthermore, this has the same algorithm as mine but with different code structure)
+- [TF-mrnn](https://github.com/mjhucla/TF-mRNN) I borrow the beam search code. And this is also a very good caption genration model.

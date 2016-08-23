@@ -3,6 +3,7 @@ from tensorflow.python.ops import rnn_cell
 from tensorflow.python.ops import seq2seq
 import os
 import vgg16
+import copy
 
 import numpy as np
 
@@ -12,7 +13,7 @@ def setup(opt):
     if opt.start_from is not None:
         # check if all necessary files exist 
         assert os.path.isdir(opt.start_from)," %s must be a a path" % opt.start_from
-        assert os.path.isfile(os.path.join(opt.start_from,"infos.pkl")),"infos.pkl file does not exist in path %s"%opt.start_from
+        assert os.path.isfile(os.path.join(opt.start_from,"infos_"+opt.id+".pkl")),"infos.pkl file does not exist in path %s"%opt.start_from
         ckpt = tf.train.get_checkpoint_state(opt.start_from)
         assert ckpt,"No checkpoint found"
         assert ckpt.model_checkpoint_path,"No model path found in checkpoint"
@@ -46,7 +47,7 @@ class Model():
         self.seq_length = opt.seq_length
         self.vocab_size = opt.vocab_size
         self.seq_per_img = opt.seq_per_img
-        self.batch_size = opt.batch_size
+        #self.batch_size = opt.batch_size
 
         self.opt = opt
 
@@ -54,9 +55,9 @@ class Model():
         self.training = tf.Variable(True, trainable = False, name = "training")
 
         # Input varaibles
-        self.images = tf.placeholder(tf.float32, [self.batch_size, 224, 224, 3], name = "images")
-        self.labels = tf.placeholder(tf.int32, [self.batch_size * self.seq_per_img, self.seq_length + 2], name = "labels")
-        self.masks = tf.placeholder(tf.float32, [self.batch_size * self.seq_per_img, self.seq_length + 2], name = "masks")
+        self.images = tf.placeholder(tf.float32, [None, 224, 224, 3], name = "images")
+        self.labels = tf.placeholder(tf.int32, [None, self.seq_length + 2], name = "labels")
+        self.masks = tf.placeholder(tf.float32, [None, self.seq_length + 2], name = "masks")
 
         # VGG 16
         if self.opt.start_from is not None:
@@ -108,11 +109,12 @@ class Model():
                                 lambda : tf.constant(1 - self.drop_prob_lm),
                                 lambda : tf.constant(1.0), name = 'keep_prob')
 
-            cell = rnn_cell.DropoutWrapper(cell_fn(self.rnn_size, state_is_tuple = True), 1.0, self.keep_prob)
+            self.basic_cell = cell = rnn_cell.DropoutWrapper(cell_fn(self.rnn_size), 1.0, self.keep_prob)
 
-            self.cell = cell = rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)
+            self.cell = rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)
 
     def build_model(self):
+        self.batch_size = tf.shape(self.images)[0]
         with tf.variable_scope("rnnlm"):
             image_emb = tf.matmul(self.fc7, self.encode_img_W) + self.encode_img_b
 
@@ -126,6 +128,7 @@ class Model():
             initial_state = self.cell.zero_state(self.batch_size * self.seq_per_img, tf.float32)
 
             outputs, last_state = seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=None)
+            #outputs, last_state = tf.nn.rnn(self.cell, rnn_inputs, initial_state)
 
             self.logits = [tf.matmul(output, self.embed_word_W) + self.embed_word_b for output in outputs[1:]]
         with tf.variable_scope("loss"):
@@ -177,8 +180,146 @@ class Model():
 
             tf.get_variable_scope().reuse_variables()
             outputs, last_state = seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
+            #outputs, last_state = tf.nn.rnn(self.cell, rnn_inputs, initial_state)
             self.g_output = output = tf.reshape(tf.concat(1, outputs[1:]), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
             self.g_logits = logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b
             self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, self.seq_length + 1, self.vocab_size + 1])
-            
+
         self.generator = tf.argmax(probs, 2)
+
+    def build_decoder_rnn(self, first_step):
+        with tf.variable_scope("rnnlm"):
+            if first_step:
+                rnn_input = tf.matmul(self.fc7, self.encode_img_W) + self.encode_img_b
+            else:
+                self.decoder_prev_word = tf.placeholder(tf.int32, [None])
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word) + self.bemb
+
+            self.batch_size = tf.shape(rnn_input)[0]
+
+            tf.get_variable_scope().reuse_variables()
+
+            self.decoder_cell = rnn_cell.MultiRNNCell([self.basic_cell] * self.opt.num_layers, state_is_tuple = False)
+            state_size = self.decoder_cell.state_size
+            if not first_step:
+                self.decoder_initial_state = initial_state = tf.placeholder(tf.float32, 
+                    [None, state_size])
+            else:
+                initial_state = self.decoder_cell.zero_state(
+                    self.batch_size, tf.float32)
+
+            outputs, state = seq2seq.rnn_decoder([rnn_input], initial_state, self.decoder_cell)
+            #outputs, state = tf.nn.rnn(self.decoder_cell, [rnn_input], initial_state)
+            logits = tf.matmul(outputs[0], self.embed_word_W) + self.embed_word_b
+            decoder_probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, self.vocab_size + 1])
+            decoder_state = state
+        return [decoder_probs, decoder_state]
+
+
+    def build_decoder(self):
+        self.decoder_model_init = self.build_decoder_rnn(True)
+        self.decoder_model_cont = self.build_decoder_rnn(False)
+
+    def decode(self, img, beam_size, sess, max_steps=30):
+        """Decode an image with a sentences."""
+        
+        # Initilize beam search variables
+        # Candidate will be represented with a dictionary
+        #   "indexes": a list with indexes denoted a sentence; 
+        #   "words": word in the decoded sentence without <bos>
+        #   "score": log-likelihood of the sentence
+        #   "state": RNN state when generating the last word of the candidate
+        good_sentences = [] # store sentences already ended with <bos>
+        cur_best_cand = [] # store current best candidates
+        highest_score = 0.0 # hightest log-likelihodd in good sentences
+        
+        # Get the initial logit and state
+        probs_init, state_init = self.get_probs_init(img, sess)
+        probs_init, state_init = self.get_probs_cont(state_init, 0, sess)
+        probs_init = np.squeeze(probs_init)
+        #assert logit_init.shape[0] == self.vocab_size + 1 and len(
+        #        logit_init.shape) == 1
+        probs_init_order = np.argsort(-probs_init)
+
+        for ind_b in xrange(beam_size):
+            cand = {}
+            cand['indexes'] = [probs_init_order[ind_b]]
+            cand['score'] = -np.log(probs_init[probs_init_order[ind_b]])
+            cand['state'] = state_init
+            cur_best_cand.append(cand)
+            
+        # Expand the current best candidates until max_steps or no candidate
+        for i in xrange(max_steps):
+            # move candidates end with <bos> to good_sentences or remove it
+            cand_left = []
+            for cand in cur_best_cand:
+                if len(good_sentences) > beam_size and cand['score'] > highest_score:
+                    continue # No need to expand that candidate
+                if cand['indexes'][-1] == 0: #end of sentence
+                    good_sentences.append(cand)
+                    highest_score = max(highest_score, cand['score'])
+                else:
+                    cand_left.append(cand)
+            cur_best_cand = cand_left
+            if not cur_best_cand:
+                break
+            # expand candidate left
+            cand_pool = []
+            #for cand in cur_best_cand:
+                #probs, state = self.get_probs_cont(cand['state'], cand['indexes'][-1], sess)
+            states = np.vstack([cand['state'] for cand in cur_best_cand])
+            indexes = [cand['indexes'] for cand in cur_best_cand]
+            all_probs, all_state = self.get_probs_cont(states, indexes, sess)
+            for ind_cand in range(len(cur_best_cand)):
+                probs = all_probs[ind_cand]
+                state = all_state[ind_cand]
+                
+                probs = np.squeeze(probs)
+                probs_order = np.argsort(-probs)
+                for ind_b in xrange(beam_size):
+                    cand_e = copy.deepcopy(cand)
+                    cand_e['indexes'].append(probs_order[ind_b])
+                    cand_e['score'] -= np.log(probs[probs_order[ind_b]])
+                    cand_e['state'] = state
+                    cand_pool.append(cand_e)
+            # get final cand_pool
+            cur_best_cand = sorted(cand_pool, key=lambda cand: cand['score'])
+            cur_best_cand = self.truncate_list(cur_best_cand, beam_size)
+            
+        # Add candidate left in cur_best_cand to good sentences
+        for cand in cur_best_cand:
+            if len(good_sentences) > beam_size and cand['score'] > highest_score:
+                continue
+            if cand['indexes'][-1] != vocab['<bos>']:
+                cand['indexes'].append(vocab['<bos>'])
+            good_sentences.append(cand)
+            highest_score = max(highest_score, cand['score'])
+            
+        # Sort good sentences and return the final list
+        good_sentences = sorted(good_sentences, key=lambda cand: cand['score'])
+        good_sentences = self.truncate_list(good_sentences, beam_size)
+        
+        return [sent['indexes'] for sent in good_sentences]
+        
+    def truncate_list(self, l, num):
+        if num == -1:
+            num = len(l)
+        return l[:min(len(l), num)]
+
+    def get_probs_init(self, img, sess):
+        """Use the model to get initial logit"""
+        m = self.decoder_model_init
+        
+        probs, state = sess.run(m, {self.images: img})
+                                                            
+        return (probs, state)
+        
+    def get_probs_cont(self, state_prev, prev_word, sess):
+        """Use the model to get continued logit"""
+        m = self.decoder_model_cont
+        prev_word = np.array([prev_word], dtype='int32')
+        
+        probs, state = sess.run(m,{self.decoder_prev_word: prev_word,
+                                         self.decoder_initial_state: state_prev})
+                                                            
+        return (probs, state)

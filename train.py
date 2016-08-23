@@ -16,10 +16,6 @@ NUM_THREADS = int(os.environ['OMP_NUM_THREADS'])
 
 #from ipdb import set_trace
 
-def main():
-    opt = opts.parse_opt()
-    train(opt)
-
 def train(opt):
     loader = DataLoader(opt)
     opt.vocab_size = loader.vocab_size
@@ -28,7 +24,7 @@ def train(opt):
     infos = {}
     if opt.start_from is not None:
         # open old infos and check if models are compatible
-        with open(os.path.join(opt.start_from, 'infos.pkl')) as f:
+        with open(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl')) as f:
             infos = cPickle.load(f)
             saved_model_opt = infos['opt']
             need_be_same=["rnn_type","rnn_size","num_layers","seq_length"]
@@ -37,6 +33,9 @@ def train(opt):
 
     iteration = infos.get('iter', 0)
     epoch = infos.get('epoch', 0)
+    val_result_history = infos.get('val_result_history', {})
+    loss_history = infos.get('loss_history', {})
+
     loader.iterators = infos.get('iterators', loader.iterators)
     if opt.load_best_score == 1:
         best_val_score = infos.get('best_val_score', None)
@@ -44,6 +43,7 @@ def train(opt):
 
     model.build_model()
     model.build_generator()
+    model.build_decoder()
 
     with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
         # Initialize the variables, and restore the variables form checkpoint if there is.
@@ -55,11 +55,11 @@ def train(opt):
         sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate))
 
         while True:
+            start = time.time()
             # Assure in training mode
             sess.run(tf.assign(model.training, True))
             sess.run(tf.assign(model.vgg16_training, True))
 
-            start = time.time()
             # Load data from train split (0)
             data = loader.get_batch(0)
             print('Read data:', time.time() - start)
@@ -84,6 +84,7 @@ def train(opt):
             if (iteration % opt.losses_log_every == 0):
                 model.summary_writer.add_summary(merged, iteration)
                 model.summary_writer.flush()
+                loss_history[iteration] = train_loss
 
             # make evaluation on validation set, and save model
             if (iteration % opt.save_checkpoint_every == 0):
@@ -93,6 +94,7 @@ def train(opt):
                                 'language_eval': opt.language_eval, 
                                 'dataset': opt.input_json}
                 val_loss, predictions, lang_stats = eval_split(sess, model, loader, eval_kwargs)
+
                 # Write validation result into summary
                 summary = tf.Summary(value=[tf.Summary.Value(tag='validation loss', simple_value=val_loss)])
                 model.summary_writer.add_summary(summary, iteration)
@@ -100,6 +102,7 @@ def train(opt):
                     summary = tf.Summary(value=[tf.Summary.Value(tag=k, simple_value=v)])
                     model.summary_writer.add_summary(summary, iteration)
                 model.summary_writer.flush()
+                val_result_history[iteration] = {'loss': val_loss, 'lang_stats': lang_stats, 'predictions': predictions}
 
                 # Save model if is improving on validation result
                 if opt.language_eval == 1:
@@ -119,8 +122,10 @@ def train(opt):
                     infos['iterators'] = loader.iterators
                     infos['best_val_score'] = best_val_score
                     infos['opt'] = opt
-                    with open(os.path.join(opt.checkpoint_path, 'infos.pkl'), 'wb') as f:
-                            cPickle.dump(infos, f)
+                    infos['val_result_history'] = val_result_history
+                    infos['loss_history'] = loss_history
+                    with open(os.path.join(opt.checkpoint_path, 'infos_'+opt.id+'.pkl'), 'wb') as f:
+                        cPickle.dump(infos, f)
 
             if epoch >= opt.max_epochs and opt.max_epochs != -1:
                 break
@@ -143,8 +148,12 @@ def eval_split(sess, model, loader, eval_kwargs):
     loss_evals = 0
     predictions = []
     while True:
-        data = loader.get_batch(split)
-        n = n + loader.batch_size
+        if opt.beam_size > 1:
+            data = loader.get_batch(split, 1)
+            n = n + 1
+        else:
+            data = loader.get_batch(split)
+            n = n + loader.batch_size
 
         # forward the model to get loss
         feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks']}
@@ -153,19 +162,28 @@ def eval_split(sess, model, loader, eval_kwargs):
         loss_sum = loss_sum + loss
         loss_evals = loss_evals + 1
 
-        # forward the model to also get generated samples for each image
-        feed = {model.images: data['images']}
-        #g_o,g_l,g_p, seq = sess.run([model.g_output, model.g_logits, model.g_probs, model.generator], feed)
-        seq = sess.run(model.generator, feed)
+        if opt.beam_size == 1:
+            # forward the model to also get generated samples for each image
+            feed = {model.images: data['images']}
+            #g_o,g_l,g_p, seq = sess.run([model.g_output, model.g_logits, model.g_probs, model.generator], feed)
+            seq = sess.run(model.generator, feed)
 
-        #set_trace()
-        sents = loader.decode_sequence(seq)
+            #set_trace()
+            sents = loader.decode_sequence(seq)
 
-        for k, sent in enumerate(sents):
-            entry = {'image_id': data['infos'][k]['id'], 'caption': sent}
+            for k, sent in enumerate(sents):
+                entry = {'image_id': data['infos'][k]['id'], 'caption': sent}
+                predictions.append(entry)
+                if verbose:
+                    print('image %s: %s' %(entry['image_id'], entry['caption']))
+        else:
+            seq = model.decode(data['images'], opt.beam_size, sess)
+            sents = [' '.join([loader.ix_to_word.get(str(ix), '') for ix in sent]).strip() for sent in seq]
+            entry = {'image_id': data['infos'][0]['id'], 'caption': sents[0]}
             predictions.append(entry)
             if verbose:
-                print('image %s: %s' %(entry['image_id'], entry['caption']))
+                for sent in sents:
+                    print('image %s: %s' %(entry['image_id'], sent))
         
         ix0 = data['bounds']['it_pos_now']
         ix1 = min(data['bounds']['it_max'], val_images_use)
@@ -181,6 +199,5 @@ def eval_split(sess, model, loader, eval_kwargs):
         lang_stats = eval_utils.language_eval(dataset, predictions)
     return loss_sum/loss_evals, predictions, lang_stats
 
-
-if __name__ == '__main__':
-    main()
+opt = opts.parse_opt()
+train(opt)
