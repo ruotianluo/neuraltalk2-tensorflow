@@ -53,13 +53,12 @@ def train(opt):
         # Assign the learning rate
         sess.run(tf.assign(model.lr, opt.learning_rate * (opt.decay_rate ** epoch)))
         sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate))
+        # Assure in training mode
+        sess.run(tf.assign(model.training, True))
+        sess.run(tf.assign(model.vgg16_training, True))
 
         while True:
             start = time.time()
-            # Assure in training mode
-            sess.run(tf.assign(model.training, True))
-            sess.run(tf.assign(model.vgg16_training, True))
-
             # Load data from train split (0)
             data = loader.get_batch(0)
             print('Read data:', time.time() - start)
@@ -197,6 +196,10 @@ def eval_split(sess, model, loader, eval_kwargs):
 
     if language_eval == 1:
         lang_stats = eval_utils.language_eval(dataset, predictions)
+
+    # Switch back to training mode
+    sess.run(tf.assign(model.training, True))
+    sess.run(tf.assign(model.vgg16_training, True))
     return loss_sum/loss_evals, predictions, lang_stats
 
 opt = opts.parse_opt()

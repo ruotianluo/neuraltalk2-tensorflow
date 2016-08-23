@@ -83,8 +83,8 @@ class Model():
         # Variable in language model
         with tf.variable_scope("rnnlm"):
             # Word Embedding table
-            with tf.device("/cpu:0"):
-                self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
+            #with tf.device("/cpu:0"):
+            self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
             self.bemb = self.init_bias(self.input_encoding_size, name='bemb')
 
             # Image Emcoding
