@@ -275,44 +275,22 @@ class Model():
         
         # Get the initial logit and state
         probs_init, state_init = self.get_probs_init(img, sess)
-        probs_init, state_init = self.get_probs_cont(state_init, 0, sess)
-        probs_init = np.squeeze(probs_init)
-        #assert logit_init.shape[0] == self.vocab_size + 1 and len(
-        #        logit_init.shape) == 1
-        probs_init_order = np.argsort(-probs_init)
-
-        for ind_b in xrange(beam_size):
-            cand = {}
-            cand['indexes'] = [probs_init_order[ind_b]]
-            cand['score'] = -np.log(probs_init[probs_init_order[ind_b]])
-            cand['state'] = state_init
-            cur_best_cand.append(cand)
+        cand = {'indexes': [0], 'score': 0, 'state': state_init}
+        cur_best_cand.append(cand)
             
         # Expand the current best candidates until max_steps or no candidate
         for i in xrange(max_steps):
-            # move candidates end with <bos> to good_sentences or remove it
-            cand_left = []
-            for cand in cur_best_cand:
-                if len(good_sentences) > beam_size and cand['score'] > highest_score:
-                    continue # No need to expand that candidate
-                if cand['indexes'][-1] == 0: #end of sentence
-                    good_sentences.append(cand)
-                    highest_score = max(highest_score, cand['score'])
-                else:
-                    cand_left.append(cand)
-            cur_best_cand = cand_left
-            if not cur_best_cand:
-                break
-            # expand candidate left
+            # expand candidates
             cand_pool = []
             #for cand in cur_best_cand:
                 #probs, state = self.get_probs_cont(cand['state'], cand['indexes'][-1], sess)
             states = np.vstack([cand['state'] for cand in cur_best_cand])
-            indexes = [cand['indexes'] for cand in cur_best_cand]
-            all_probs, all_state = self.get_probs_cont(states, indexes, sess)
+            indexes = [cand['indexes'][-1] for cand in cur_best_cand]
+            all_probs, all_states = self.get_probs_cont(states, indexes, sess)
             for ind_cand in range(len(cur_best_cand)):
+                cand = cur_best_cand[ind_cand]
                 probs = all_probs[ind_cand]
-                state = all_state[ind_cand]
+                state = all_states[ind_cand]
                 
                 probs = np.squeeze(probs)
                 probs_order = np.argsort(-probs)
@@ -325,8 +303,22 @@ class Model():
             # get final cand_pool
             cur_best_cand = sorted(cand_pool, key=lambda cand: cand['score'])
             cur_best_cand = self.truncate_list(cur_best_cand, beam_size)
-            
-        # Add candidate left in cur_best_cand to good sentences
+
+            # move candidates end with <eos> to good_sentences or remove it
+            cand_left = []
+            for cand in cur_best_cand:
+                if len(good_sentences) > beam_size and cand['score'] > highest_score:
+                    continue # No need to expand that candidate
+                if cand['indexes'][-1] == 0: #end of sentence
+                    good_sentences.append(cand)
+                    highest_score = max(highest_score, cand['score'])
+                else:
+                    cand_left.append(cand)
+            cur_best_cand = cand_left
+            if not cur_best_cand:
+                break
+
+        # Add candidate left in cur_best_cand to good sentences 
         for cand in cur_best_cand:
             if len(good_sentences) > beam_size and cand['score'] > highest_score:
                 continue
@@ -338,8 +330,9 @@ class Model():
         # Sort good sentences and return the final list
         good_sentences = sorted(good_sentences, key=lambda cand: cand['score'])
         good_sentences = self.truncate_list(good_sentences, beam_size)
+
         
-        return [sent['indexes'] for sent in good_sentences]
+        return [sent['indexes'][1:] for sent in good_sentences]
         
     def truncate_list(self, l, num):
         if num == -1:
@@ -357,7 +350,7 @@ class Model():
     def get_probs_cont(self, state_prev, prev_word, sess):
         """Use the model to get continued logit"""
         m = self.decoder_model_cont
-        prev_word = np.array([prev_word], dtype='int32')
+        prev_word = np.array(prev_word, dtype='int32')
         
         probs, state = sess.run(m,{self.decoder_prev_word: prev_word,
                                          self.decoder_initial_state: state_prev})
