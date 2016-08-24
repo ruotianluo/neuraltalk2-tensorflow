@@ -42,7 +42,7 @@ def parse_opt():
                     help='number of epochs')
     parser.add_argument('--batch_size', type=int, default=16,
                     help='minibatch size')
-    parser.add_argument('--grad_clip', type=float, default=5.,
+    parser.add_argument('--grad_clip', type=float, default=0.1, #5.,
                     help='clip gradients at this value')
     parser.add_argument('--finetune_cnn_after', type=int, default=-1,
                     help='After what iteration do we start finetuning the CNN? (-1 = disable; never finetune, 0 = finetune from start)')

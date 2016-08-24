@@ -6,6 +6,8 @@ import vgg16
 import copy
 
 import numpy as np
+import collections
+import six
 
 def setup(opt):
     
@@ -28,6 +30,41 @@ class Model():
 
     def init_bias(self, dim_out, name=None):
         return tf.Variable(tf.zeros([dim_out]), name=name)
+
+    # My own clip by value which could input a list of tensors
+    def clip_by_value(self, t_list, clip_value_min, clip_value_max, name=None):
+        if (not isinstance(t_list, collections.Sequence)
+                or isinstance(t_list, six.string_types)):
+            raise TypeError("t_list should be a sequence")
+        t_list = list(t_list)
+        
+        with tf.name_scope(name or "clip_by_value") as name:
+        #with ops.name_scope(name, "clip_by_global_norm",
+        #              t_list + [clip_norm]) as name:
+        # Calculate L2-norm, clip elements by ratio of clip_norm to L2-norm
+            values = [
+                tf.convert_to_tensor(
+                    t.values if isinstance(t, tf.IndexedSlices) else t,
+                    name="t_%d" % i)
+                if t is not None else t
+                for i, t in enumerate(t_list)]
+
+            values_clipped = []
+            for i, v in enumerate(values):
+                if v is None:
+                    values_clipped.append(None)
+                else:
+                    with tf.get_default_graph().colocate_with(v):
+                        values_clipped.append(
+                            tf.clip_by_value(v, clip_value_min, clip_value_max))
+
+            list_clipped = [
+                tf.IndexedSlices(c_v, t.indices, t.dense_shape)
+                if isinstance(t, tf.IndexedSlices)
+                else c_v
+                for (c_v, t) in zip(values_clipped, t_list)]
+
+        return list_clipped
 
     def initialize(self, sess):
         sess.run(tf.initialize_all_variables())
@@ -114,7 +151,8 @@ class Model():
             self.cell = rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)
 
     def build_model(self):
-        self.batch_size = tf.shape(self.images)[0]
+        with tf.name_scope("batch_size"):
+            self.batch_size = tf.shape(self.images)[0]
         with tf.variable_scope("rnnlm"):
             image_emb = tf.matmul(self.fc7, self.encode_img_W) + self.encode_img_b
 
@@ -143,15 +181,17 @@ class Model():
 
         # Collect the rnn variables, and create the optimizer of rnn
         tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='rnnlm')
-        grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars),
-                self.opt.grad_clip)
+        grads = self.clip_by_value(tf.gradients(self.cost, tvars), -self.opt.grad_clip, self.opt.grad_clip)
+        #grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars),
+        #        self.opt.grad_clip)
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
 
         # Collect the cnn variables, and create the optimizer of cnn
         cnn_tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='vgg16')
-        cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
-                self.opt.grad_clip)
+        cnn_grads = self.clip_by_value(tf.gradients(self.cost, cnn_tvars), -self.opt.grad_clip, self.opt.grad_clip)
+        #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
+        #        self.opt.grad_clip)
         cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
         self.cnn_train_op = optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
