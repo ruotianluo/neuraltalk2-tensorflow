@@ -11,8 +11,10 @@ def parse_opt():
     #                help='image directory containing images')
     #parser.add_argument('--vocab_info', type=str, default='',
     #                help='The json file saving the vocabulary information')
-    parser.add_argument('--cnn_model', type=str, default='models/vgg16.npy',
-                    help='path to CNN tf model. Note this MUST be a VGGNet-16 right now.')
+    parser.add_argument('--cnn_model', type=str, default='vgg16',
+                    help='vgg16 or vgg19')
+    parser.add_argument('--cnn_weight', type=str, default='models/vgg16.npy',
+                    help='path to CNN tf model. Note this MUST be a vgg16 right now.')
     parser.add_argument('--start_from', type=str, default=None,
                     help="""continue training from saved model at this path. Path must contain files saved by previous training process: 
                         'infos.pkl'         : configuration;

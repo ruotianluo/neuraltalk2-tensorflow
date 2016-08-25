@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.python.ops import rnn_cell
 from tensorflow.python.ops import seq2seq
 import os
-import vgg16
+import vgg
 import copy
 
 import numpy as np
@@ -96,13 +96,18 @@ class Model():
 
         # VGG 16
         if self.opt.start_from is not None:
-            self.vgg16 = vgg16.Vgg16()
+            cnn_weight = None
         else:
-            self.vgg16 = vgg16.Vgg16(self.opt.cnn_model)
-        with tf.variable_scope("vgg16"):
-            self.vgg16.build(self.images)
-        self.fc7 = self.vgg16.drop7
-        self.vgg16_training = self.vgg16.training
+            cnn_weight = self.opt.cnn_weight
+        if self.opt.cnn_model == 'vgg16':
+            self.cnn = vgg.Vgg16(cnn_weight)
+        if self.opt.cnn_model == 'vgg19':
+            self.cnn = vgg.Vgg19(cnn_weight)
+            
+        with tf.variable_scope("cnn"):
+            self.cnn.build(self.images)
+        self.fc7 = self.cnn.drop7
+        self.cnn_training = self.cnn.training
         """
         # Old model loading
         with open(self.opt.cnn_model) as f:
@@ -186,7 +191,7 @@ class Model():
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
 
         # Collect the cnn variables, and create the optimizer of cnn
-        cnn_tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='vgg16')
+        cnn_tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='cnn')
         cnn_grads = clip_by_value(tf.gradients(self.cost, cnn_tvars), -self.opt.grad_clip, self.opt.grad_clip)
         #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
         #        self.opt.grad_clip)

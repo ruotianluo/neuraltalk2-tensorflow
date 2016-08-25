@@ -53,7 +53,7 @@ I borrow the [machrisaa/tensorflow-vgg](https://github.com/machrisaa/tensorflow-
 - Add a variable `training` to control the evaluation and training mode of model (in principle it's controling the dropout probability).
 - Define all the weights and biases as Variable (previously constant).
 
-You need to download the npy file of vgg (could be found in [machrisaa/tensorflow-vgg](https://github.com/machrisaa/tensorflow-vgg)). Put the file somewhere (e.g. a `models` directory), and we're ready to train!
+You need to download the npy file of vgg, [vgg16](https://dl.dropboxusercontent.com/u/50333326/vgg16.npy), [vgg19](https://dl.dropboxusercontent.com/u/50333326/vgg19.npy). Put the file somewhere (e.g. a `models` directory), and we're ready to train!
 
 ```bash
 $ python train.py --input_json coco/cocotalk.json --input_h5 coco/cocotalk.h5 --checkpoint_path ./log --save_checkpoint_every 2000 --val_images_use 3200

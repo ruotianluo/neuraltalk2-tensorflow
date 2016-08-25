@@ -55,7 +55,7 @@ def train(opt):
         sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate))
         # Assure in training mode
         sess.run(tf.assign(model.training, True))
-        sess.run(tf.assign(model.vgg16_training, True))
+        sess.run(tf.assign(model.cnn_training, True))
 
         while True:
             start = time.time()
@@ -68,7 +68,7 @@ def train(opt):
             if iteration >= opt.finetune_cnn_after or opt.finetune_cnn_after == -1:
                 train_loss, merged, _ = sess.run([model.cost, model.summaries, model.train_op], feed)
             else:
-                # Finetune the vgg
+                # Finetune the cnn
                 train_loss, merged, _, __ = sess.run([model.cost, model.self.summaries, model.train_op, model.cnn_train_op], feed)
             end = time.time()
             print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
@@ -138,7 +138,7 @@ def eval_split(sess, model, loader, eval_kwargs):
 
     # Make sure in the evaluation mode
     sess.run(tf.assign(model.training, False))
-    sess.run(tf.assign(model.vgg16_training, False))
+    sess.run(tf.assign(model.cnn_training, False))
 
     loader.reset_iterator(split)
 
@@ -199,7 +199,7 @@ def eval_split(sess, model, loader, eval_kwargs):
 
     # Switch back to training mode
     sess.run(tf.assign(model.training, True))
-    sess.run(tf.assign(model.vgg16_training, True))
+    sess.run(tf.assign(model.cnn_training, True))
     return loss_sum/loss_evals, predictions, lang_stats
 
 opt = opts.parse_opt()
