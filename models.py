@@ -1,6 +1,4 @@
 import tensorflow as tf
-from tensorflow.python.ops import rnn_cell
-from tensorflow.python.ops import seq2seq
 import os
 import vgg
 import copy
@@ -137,11 +135,11 @@ class Model():
 
             # RNN cell
             if opt.rnn_type == 'rnn':
-                self.cell_fn = cell_fn = rnn_cell.BasicRNNCell
+                self.cell_fn = cell_fn = tf.nn.rnn_cell.BasicRNNCell
             elif opt.rnn_type == 'gru':
-                self.cell_fn = cell_fn = rnn_cell.GRUCell
+                self.cell_fn = cell_fn = tf.nn.rnn_cell.GRUCell
             elif opt.rnn_type == 'lstm':
-                self.cell_fn = cell_fn = rnn_cell.BasicLSTMCell
+                self.cell_fn = cell_fn = tf.nn.rnn_cell.LSTMCell
             else:
                 raise Exception("RNN type not supported: {}".format(opt.rnn_type))
 
@@ -151,7 +149,7 @@ class Model():
 
             self.basic_cell = cell = rnn_cell.DropoutWrapper(cell_fn(self.rnn_size, state_is_tuple = True), 1.0, self.keep_prob)
 
-            self.cell = rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)
+            self.cell = tf.nn.rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)
 
     def build_model(self):
         with tf.name_scope("batch_size"):
@@ -168,12 +166,12 @@ class Model():
 
             initial_state = self.cell.zero_state(self.batch_size * self.seq_per_img, tf.float32)
 
-            outputs, last_state = seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=None)
+            outputs, last_state = tf.nn.seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=None)
             #outputs, last_state = tf.nn.rnn(self.cell, rnn_inputs, initial_state)
 
             self.logits = [tf.matmul(output, self.embed_word_W) + self.embed_word_b for output in outputs[1:]]
         with tf.variable_scope("loss"):
-            loss = seq2seq.sequence_loss_by_example(self.logits,
+            loss = tf.nn.seq2seq.sequence_loss_by_example(self.logits,
                     [tf.squeeze(label, [1]) for label in tf.split(1, self.seq_length + 1, self.labels[:, 1:])], # self.labels[:,1:] is the target
                     [tf.squeeze(mask, [1]) for mask in tf.split(1, self.seq_length + 1, self.masks[:, 1:])])
             self.cost = tf.reduce_mean(loss)
@@ -222,7 +220,7 @@ class Model():
                 return tf.nn.embedding_lookup(self.Wemb, prev_symbol) + self.bemb
 
             tf.get_variable_scope().reuse_variables()
-            outputs, last_state = seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
+            outputs, last_state = tf.nn.seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
             #outputs, last_state = tf.nn.rnn(self.cell, rnn_inputs, initial_state)
             self.g_output = output = tf.reshape(tf.concat(1, outputs[1:]), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
             self.g_logits = logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b
@@ -241,8 +239,8 @@ class Model():
             self.batch_size = tf.shape(rnn_input)[0]
 
             tf.get_variable_scope().reuse_variables()
-            basic_cell = rnn_cell.DropoutWrapper(self.cell_fn(self.rnn_size, state_is_tuple = False), 1.0, self.keep_prob)
-            self.decoder_cell = rnn_cell.MultiRNNCell([basic_cell] * self.opt.num_layers, state_is_tuple = False)
+            basic_cell = tf.nn.rnn_cell.DropoutWrapper(self.cell_fn(self.rnn_size, state_is_tuple = False), 1.0, self.keep_prob)
+            self.decoder_cell = tf.nn.rnn_cell.MultiRNNCell([basic_cell] * self.opt.num_layers, state_is_tuple = False)
             state_size = self.decoder_cell.state_size
             if not first_step:
                 self.decoder_initial_state = initial_state = tf.placeholder(tf.float32, 
@@ -251,7 +249,7 @@ class Model():
                 initial_state = self.decoder_cell.zero_state(
                     self.batch_size, tf.float32)
 
-            outputs, state = seq2seq.rnn_decoder([rnn_input], initial_state, self.decoder_cell)
+            outputs, state = tf.nn.seq2seq.rnn_decoder([rnn_input], initial_state, self.decoder_cell)
             #outputs, state = tf.nn.rnn(self.decoder_cell, [rnn_input], initial_state)
             logits = tf.matmul(outputs[0], self.embed_word_W) + self.embed_word_b
             decoder_probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, self.vocab_size + 1])
