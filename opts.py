@@ -26,6 +26,8 @@ def parse_opt():
     # Optimization:general
 
     # Model settings
+    parser.add_argument('--caption_model', type=str, default="show_tell",
+                    help='show_tell, show_attend_tell, attention')
     parser.add_argument('--rnn_size', type=int, default=512,
                     help='size of RNN hidden state')
     parser.add_argument('--num_layers', type=int, default=1,
