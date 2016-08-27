@@ -69,7 +69,7 @@ def train(opt):
                 train_loss, merged, _ = sess.run([model.cost, model.summaries, model.train_op], feed)
             else:
                 # Finetune the vgg
-                train_loss, merged, _, __ = sess.run([model.cost, model.self.summaries, model.train_op, model.cnn_train_op], feed)
+                train_loss, merged, _, __ = sess.run([model.cost, model.summaries, model.train_op, model.cnn_train_op], feed)
             end = time.time()
             print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
                 .format(iteration, epoch, train_loss, end - start))
