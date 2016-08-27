@@ -7,6 +7,8 @@ import numpy as np
 import collections
 import six
 
+MAX_STEPS = 30
+
 def setup(opt):
     
     # check compatibility if training is continued from previously saved model
@@ -147,7 +149,7 @@ class Model():
                                 lambda : tf.constant(1 - self.drop_prob_lm),
                                 lambda : tf.constant(1.0), name = 'keep_prob')
 
-            self.basic_cell = cell = rnn_cell.DropoutWrapper(cell_fn(self.rnn_size, state_is_tuple = True), 1.0, self.keep_prob)
+            self.basic_cell = cell = tf.nn.rnn_cell.DropoutWrapper(cell_fn(self.rnn_size, state_is_tuple = True), 1.0, self.keep_prob)
 
             self.cell = tf.nn.rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)
 
@@ -205,9 +207,10 @@ class Model():
         with tf.variable_scope("rnnlm"):
             image_emb = tf.matmul(self.fc7, self.encode_img_W) + self.encode_img_b
 
-            rnn_inputs = tf.split(1, self.seq_length + 1, tf.zeros([self.batch_size, self.seq_length + 1, self.input_encoding_size]))
-            rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
-            rnn_inputs = [image_emb] + rnn_inputs
+            #rnn_inputs = tf.split(1, MAX_STEPS, tf.zeros([self.batch_size, MAX_STEPS, self.input_encoding_size]))
+            #rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
+            #rnn_inputs = [image_emb] + rnn_inputs
+            rnn_inputs = [image_emb] + [tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32)) + self.bemb] + [0] * (MAX_STEPS - 1)
 
             initial_state = self.cell.zero_state(self.batch_size, tf.float32)
 
@@ -224,7 +227,7 @@ class Model():
             #outputs, last_state = tf.nn.rnn(self.cell, rnn_inputs, initial_state)
             self.g_output = output = tf.reshape(tf.concat(1, outputs[1:]), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
             self.g_logits = logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b
-            self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, self.seq_length + 1, self.vocab_size + 1])
+            self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, MAX_STEPS, self.vocab_size + 1])
 
         self.generator = tf.argmax(probs, 2)
 
@@ -236,7 +239,7 @@ class Model():
                 self.decoder_prev_word = tf.placeholder(tf.int32, [None])
                 rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word) + self.bemb
 
-            self.batch_size = tf.shape(rnn_input)[0]
+            batch_size = tf.shape(rnn_input)[0]
 
             tf.get_variable_scope().reuse_variables()
             basic_cell = tf.nn.rnn_cell.DropoutWrapper(self.cell_fn(self.rnn_size, state_is_tuple = False), 1.0, self.keep_prob)
@@ -247,12 +250,12 @@ class Model():
                     [None, state_size])
             else:
                 initial_state = self.decoder_cell.zero_state(
-                    self.batch_size, tf.float32)
+                    batch_size, tf.float32)
 
             outputs, state = tf.nn.seq2seq.rnn_decoder([rnn_input], initial_state, self.decoder_cell)
             #outputs, state = tf.nn.rnn(self.decoder_cell, [rnn_input], initial_state)
             logits = tf.matmul(outputs[0], self.embed_word_W) + self.embed_word_b
-            decoder_probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, self.vocab_size + 1])
+            decoder_probs = tf.reshape(tf.nn.softmax(logits), [batch_size, self.vocab_size + 1])
             decoder_state = state
         return [decoder_probs, decoder_state]
 
@@ -323,8 +326,8 @@ class Model():
         for cand in cur_best_cand:
             if len(good_sentences) > beam_size and cand['score'] > highest_score:
                 continue
-            if cand['indexes'][-1] != vocab['<bos>']:
-                cand['indexes'].append(vocab['<bos>'])
+            if cand['indexes'][-1] != 0:
+                cand['indexes'].append(0)
             good_sentences.append(cand)
             highest_score = max(highest_score, cand['score'])
             
