@@ -117,16 +117,16 @@ class Model():
         self.fc7 = self.vgg16.get_tensor_by_name("vgg16/Relu_1:0")
         """
 
+        with tf.variable_scope("vgg16"):
+            # Image Emcoding
+            self.encode_img_W = tf.Variable(tf.random_uniform([4096, self.input_encoding_size], -0.1, 0.1), name='encode_img_W')
+            self.encode_img_b = self.init_bias(self.input_encoding_size, name='encode_img_b')
+
         # Variable in language model
         with tf.variable_scope("rnnlm"):
             # Word Embedding table
             #with tf.device("/cpu:0"):
             self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
-            self.bemb = self.init_bias(self.input_encoding_size, name='bemb')
-
-            # Image Emcoding
-            self.encode_img_W = tf.Variable(tf.random_uniform([4096, self.input_encoding_size], -0.1, 0.1), name='encode_img_W')
-            self.encode_img_b = self.init_bias(self.input_encoding_size, name='encode_img_b')
 
             #
             self.embed_word_W = tf.Variable(tf.random_uniform([self.rnn_size, self.vocab_size + 1], -0.1, 0.1), name='embed_word_W')
@@ -159,7 +159,7 @@ class Model():
             # Replicate self.seq_per_img times for each image embedding
             image_emb = tf.reshape(tf.tile(tf.expand_dims(image_emb, 1), [1, self.seq_per_img, 1]), [self.batch_size * self.seq_per_img, self.input_encoding_size])
 
-            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]) + self.bemb)
+            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
             rnn_inputs = [image_emb] + rnn_inputs
 
@@ -193,7 +193,7 @@ class Model():
         #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
         #        self.opt.grad_clip)
         cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
-        self.cnn_train_op = optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
+        self.cnn_train_op = cnn_optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
         tf.scalar_summary('training loss', self.cost)
         tf.scalar_summary('learning rate', self.lr)
@@ -216,7 +216,7 @@ class Model():
                     return rnn_inputs[1]
                 prev = tf.matmul(prev, self.embed_word_W) + self.embed_word_b
                 prev_symbol = tf.stop_gradient(tf.argmax(prev, 1))
-                return tf.nn.embedding_lookup(self.Wemb, prev_symbol) + self.bemb
+                return tf.nn.embedding_lookup(self.Wemb, prev_symbol)
 
             tf.get_variable_scope().reuse_variables()
             outputs, last_state = seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
@@ -233,7 +233,7 @@ class Model():
                 rnn_input = tf.matmul(self.fc7, self.encode_img_W) + self.encode_img_b
             else:
                 self.decoder_prev_word = tf.placeholder(tf.int32, [None])
-                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word) + self.bemb
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word)
 
             self.batch_size = tf.shape(rnn_input)[0]
 

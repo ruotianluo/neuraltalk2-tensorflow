@@ -65,7 +65,7 @@ def train(opt):
 
             start = time.time()
             feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks']}
-            if iteration >= opt.finetune_cnn_after or opt.finetune_cnn_after == -1:
+            if iteration <= opt.finetune_cnn_after or opt.finetune_cnn_after == -1:
                 train_loss, merged, _ = sess.run([model.cost, model.summaries, model.train_op], feed)
             else:
                 # Finetune the vgg
