@@ -65,11 +65,11 @@ def train(opt):
 
             start = time.time()
             feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks']}
-            if iteration >= opt.finetune_cnn_after or opt.finetune_cnn_after == -1:
+            if iteration <= opt.finetune_cnn_after or opt.finetune_cnn_after == -1:
                 train_loss, merged, _ = sess.run([model.cost, model.summaries, model.train_op], feed)
             else:
                 # Finetune the cnn
-                train_loss, merged, _, __ = sess.run([model.cost, model.self.summaries, model.train_op, model.cnn_train_op], feed)
+                train_loss, merged, _, __ = sess.run([model.cost, model.summaries, model.train_op, model.cnn_train_op], feed)
             end = time.time()
             print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
                 .format(iteration, epoch, train_loss, end - start))

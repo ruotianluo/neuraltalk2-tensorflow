@@ -125,16 +125,16 @@ class ShowTellModel():
         self.fc7 = self.vgg16.get_tensor_by_name("vgg16/Relu_1:0")
         """
 
+        with tf.variable_scope("cnn"):
+            # Image Emcoding
+            self.encode_img_W = tf.Variable(tf.random_uniform([4096, self.input_encoding_size], -0.1, 0.1), name='encode_img_W')
+            self.encode_img_b = self.init_bias(self.input_encoding_size, name='encode_img_b')
+
         # Variable in language model
         with tf.variable_scope("rnnlm"):
             # Word Embedding table
             #with tf.device("/cpu:0"):
             self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
-            self.bemb = self.init_bias(self.input_encoding_size, name='bemb')
-
-            # Image Emcoding
-            self.encode_img_W = tf.Variable(tf.random_uniform([4096, self.input_encoding_size], -0.1, 0.1), name='encode_img_W')
-            self.encode_img_b = self.init_bias(self.input_encoding_size, name='encode_img_b')
 
             #
             self.embed_word_W = tf.Variable(tf.random_uniform([self.rnn_size, self.vocab_size + 1], -0.1, 0.1), name='embed_word_W')
@@ -167,7 +167,7 @@ class ShowTellModel():
             # Replicate self.seq_per_img times for each image embedding
             image_emb = tf.reshape(tf.tile(tf.expand_dims(image_emb, 1), [1, self.seq_per_img, 1]), [self.batch_size * self.seq_per_img, self.input_encoding_size])
 
-            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]) + self.bemb)
+            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
             rnn_inputs = [image_emb] + rnn_inputs
 
@@ -201,7 +201,7 @@ class ShowTellModel():
         #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
         #        self.opt.grad_clip)
         cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
-        self.cnn_train_op = optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
+        self.cnn_train_op = cnn_optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
         tf.scalar_summary('training loss', self.cost)
         tf.scalar_summary('learning rate', self.lr)
@@ -215,7 +215,7 @@ class ShowTellModel():
             #rnn_inputs = tf.split(1, MAX_STEPS, tf.zeros([self.batch_size, MAX_STEPS, self.input_encoding_size]))
             #rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
             #rnn_inputs = [image_emb] + rnn_inputs
-            rnn_inputs = [image_emb] + [tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32)) + self.bemb] + [0] * (MAX_STEPS - 1)
+            rnn_inputs = [image_emb] + [tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32))] + [0] * (MAX_STEPS - 1)
 
             initial_state = self.cell.zero_state(self.batch_size, tf.float32)
 
@@ -225,7 +225,7 @@ class ShowTellModel():
                     return rnn_inputs[1]
                 prev = tf.matmul(prev, self.embed_word_W) + self.embed_word_b
                 prev_symbol = tf.stop_gradient(tf.argmax(prev, 1))
-                return tf.nn.embedding_lookup(self.Wemb, prev_symbol) + self.bemb
+                return tf.nn.embedding_lookup(self.Wemb, prev_symbol)
 
             tf.get_variable_scope().reuse_variables()
             outputs, last_state = tf.nn.seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
@@ -242,7 +242,7 @@ class ShowTellModel():
                 rnn_input = tf.matmul(self.fc7, self.encode_img_W) + self.encode_img_b
             else:
                 self.decoder_prev_word = tf.placeholder(tf.int32, [None])
-                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word) + self.bemb
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word)
 
             batch_size = tf.shape(rnn_input)[0]
 
@@ -432,7 +432,6 @@ class AttentionModel():
             # Word Embedding table
             #with tf.device("/cpu:0"):
             self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
-            self.bemb = self.init_bias(self.input_encoding_size, name='bemb')
 
             # Image Emcoding
             #self.encode_img_W = tf.Variable(tf.random_uniform([512, self.input_encoding_size], -0.1, 0.1), name='encode_img_W')
@@ -500,7 +499,7 @@ class AttentionModel():
             self.flattened_ctx = flattened_ctx = tf.reshape(tf.tile(tf.expand_dims(flattened_ctx, 1), [1, self.seq_per_img, 1, 1]), 
                 [self.batch_size * self.seq_per_img, 196, 512])
 
-            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]) + self.bemb)
+            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
 
             outputs, last_state = tf.nn.seq2seq.attention_decoder(rnn_inputs, initial_state, flattened_ctx, self.cell, loop_function=None)
@@ -531,7 +530,7 @@ class AttentionModel():
         #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
         #        self.opt.grad_clip)
         cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
-        self.cnn_train_op = optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
+        self.cnn_train_op = cnn_optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
         tf.scalar_summary('training loss', self.cost)
         tf.scalar_summary('learning rate', self.lr)
@@ -550,13 +549,13 @@ class AttentionModel():
 
             #rnn_inputs = tf.split(1, self.seq_length + 1, tf.zeros([self.batch_size, self.seq_length + 1, self.input_encoding_size]))
             #rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
-            rnn_inputs = [tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32)) + self.bemb] + [0] * (MAX_STEPS - 1)
+            rnn_inputs = [tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32))] + [0] * (MAX_STEPS - 1)
 
             # Always pick the word with largest probability as the input of next time step
             def loop(prev, i):
                 prev = tf.matmul(prev, self.embed_word_W) + self.embed_word_b
                 prev_symbol = tf.stop_gradient(tf.argmax(prev, 1))
-                return tf.nn.embedding_lookup(self.Wemb, prev_symbol) + self.bemb
+                return tf.nn.embedding_lookup(self.Wemb, prev_symbol)
 
             outputs, last_state = tf.nn.seq2seq.attention_decoder(rnn_inputs, initial_state, flattened_ctx, self.cell, loop_function=loop)
             #outputs, last_state = tf.nn.rnn(self.cell, rnn_inputs, initial_state)
@@ -598,9 +597,9 @@ class AttentionModel():
 
             self.decoder_prev_word = tf.placeholder(tf.int32, [None])            
             if first_step:
-                rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32)) + self.bemb
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32))
             else:
-                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word) + self.bemb
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word)
 
             #self.batch_size = tf.shape(rnn_input)[0]
 
@@ -788,7 +787,6 @@ class ShowAttendTellModel():
             # Word Embedding table
             #with tf.device("/cpu:0"):
             self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
-            self.bemb = self.init_bias(self.input_encoding_size, name='bemb')
 
             #
             self.embed_word_W = tf.Variable(tf.random_uniform([self.rnn_size, self.vocab_size + 1], -0.1, 0.1), name='embed_word_W')
@@ -863,7 +861,7 @@ class ShowAttendTellModel():
             #projected context
             pctx = slim.fully_connected(self.flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
 
-            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]) + self.bemb)
+            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
 
             prev_h = self.last_hidden_vec(initial_state)
@@ -915,7 +913,7 @@ class ShowAttendTellModel():
         #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
         #        self.opt.grad_clip)
         cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
-        self.cnn_train_op = optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
+        self.cnn_train_op = cnn_optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
         tf.scalar_summary('training loss', self.cost)
         tf.scalar_summary('learning rate', self.lr)
@@ -935,9 +933,9 @@ class ShowAttendTellModel():
             #projected context
             pctx = slim.fully_connected(flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
 
-            #rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]) + self.bemb)
+            #rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             #rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
-            rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32)) + self.bemb
+            rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32))
 
             prev_h = self.last_hidden_vec(initial_state)
 
@@ -962,7 +960,7 @@ class ShowAttendTellModel():
 
                 prev_logit = tf.matmul(prev_h, self.embed_word_W) + self.embed_word_b
                 prev_symbol = tf.stop_gradient(tf.argmax(prev_logit, 1))
-                rnn_input = tf.nn.embedding_lookup(self.Wemb, prev_symbol) + self.bemb
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, prev_symbol)
             
             self.g_output = output = tf.reshape(tf.concat(1, outputs), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
             self.g_logits = logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b    
@@ -1011,9 +1009,9 @@ class ShowAttendTellModel():
             self.decoder_prev_word = tf.placeholder(tf.int32, [None])
 
             if first_step:
-                rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32)) + self.bemb
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32))
             else:
-                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word) + self.bemb
+                rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word)
 
             #projected context
             pctx = slim.fully_connected(flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
