@@ -7,6 +7,8 @@ import copy
 import numpy as np
 import misc.utils as utils
 
+MAX_STEPS = 30
+
 class ShowAttendTellModel():
 
     def init_weight(self, dim_in, dim_out, name=None, stddev=1.0):
