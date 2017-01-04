@@ -137,23 +137,6 @@ class DataLoader():
 
         return data
 
-    # Input: seq, N*D numpy array, with element 0 .. vocab_size. 0 is END token.
-    def decode_sequence(self, seq):
-        N, D = seq.shape
-        out = []
-        for i in range(N):
-            txt = ''
-            for j in range(D):
-                ix = seq[i,j]
-                if ix > 0 :
-                    if j >= 1:
-                        txt = txt + ' '
-                    txt = txt + self.ix_to_word[str(ix)]
-                else:
-                    break
-            out.append(txt)
-        return out
-
     def reset_iterator(self, split):
         self.iterators[split] = 0
         

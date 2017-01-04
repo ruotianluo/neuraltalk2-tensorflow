@@ -7,10 +7,6 @@ def parse_opt():
                     help='path to the json file containing additional info and vocab')
     parser.add_argument('--input_h5', type=str, default='data/coco.json',
                     help='path to the h5file containing the preprocessed dataset')
-    #parser.add_argument('--image_path', type=str, default='data/coco',
-    #                help='image directory containing images')
-    #parser.add_argument('--vocab_info', type=str, default='',
-    #                help='The json file saving the vocabulary information')
     parser.add_argument('--cnn_model', type=str, default='vgg16',
                     help='vgg16 or vgg19')
     parser.add_argument('--cnn_weight', type=str, default='models/vgg16.npy',
@@ -23,23 +19,17 @@ def parse_opt():
                         'model.ckpt-*'      : file(s) with model definition (created by tf)
                     """)
 
-    # Optimization:general
-
     # Model settings
     parser.add_argument('--caption_model', type=str, default="show_tell",
                     help='show_tell, show_attend_tell, attention')
     parser.add_argument('--rnn_size', type=int, default=512,
-                    help='size of RNN hidden state')
+                    help='size of the rnn in number of hidden nodes in each layer')
     parser.add_argument('--num_layers', type=int, default=1,
                     help='number of layers in the RNN')
     parser.add_argument('--rnn_type', type=str, default='lstm',
                     help='rnn, gru, or lstm')
     parser.add_argument('--input_encoding_size', type=int, default=512,
                     help='the encoding size of each token in the vocabulary, and the image.')
-    parser.add_argument('--drop_prob_lm', type=float, default=0.5,
-                    help='strength of dropout in the Language Model RNN')
-  
-    # training setting
 
     # Optimization: General
     parser.add_argument('--max_epochs', type=int, default=-1,
@@ -48,6 +38,8 @@ def parse_opt():
                     help='minibatch size')
     parser.add_argument('--grad_clip', type=float, default=0.1, #5.,
                     help='clip gradients at this value')
+    parser.add_argument('--drop_prob_lm', type=float, default=0.5,
+                    help='strength of dropout in the Language Model RNN')
     parser.add_argument('--finetune_cnn_after', type=int, default=-1,
                     help='After what iteration do we start finetuning the CNN? (-1 = disable; never finetune, 0 = finetune from start)')
     parser.add_argument('--seq_length', type=int, default=16,
@@ -60,19 +52,32 @@ def parse_opt():
     #Optimization: for the Language Model
     parser.add_argument('--learning_rate', type=float, default=4e-4,
                     help='learning rate')
-    parser.add_argument('--decay_rate', type=float, default=1,
-                    help='decay rate for rmsprop')   
+    parser.add_argument('--learning_rate_decay_start', type=int, default=-1, 
+                    help='at what iteration to start decaying learning rate? (-1 = dont) (in epoch)')
+    parser.add_argument('--learning_rate_decay_every', type=int, default=10, 
+                    help='every how many iterations thereafter to drop LR by half?(in epoch)')
+    parser.add_argument('--optim_alpha', type=float, default=0.8,
+                    help='alpha for adam')
+    parser.add_argument('--optim_beta', type=float, default=0.999,
+                    help='beta used for adam')
+    parser.add_argument('--optim_epsilon', type=float, default=1e-8,
+                    help='epsilon that goes into denominator for smoothing')
+
     #Optimization: for the CNN
+    parser.add_argument('--cnn_optim_alpha', type=float, default=0.8,
+                    help='alpha for momentum of CNN')
+    parser.add_argument('--cnn_optim_beta', type=float, default=0.999,
+                    help='beta for momentum of CNN')
     parser.add_argument('--cnn_learning_rate', type=float, default=1e-5,
                     help='learning rate for the CNN')
+    parser.add_argument('--cnn_weight_decay', type=float, default=0,
+                    help='L2 weight decay just for the CNN')
 
     # Evaluation/Checkpointing
-    parser.add_argument('--id', type=str, default='',
-                    help='an id identifying this run/job. used in cross-val and appended when writing progress files')
     parser.add_argument('--val_images_use', type=int, default=3200,
                     help='how many images to use when periodically evaluating the validation loss? (-1 = all)')
     parser.add_argument('--save_checkpoint_every', type=int, default=2500,
-                    help='how often to save a model checkpoint?')
+                    help='how often to save a model checkpoint (in iterations)?')
     parser.add_argument('--checkpoint_path', type=str, default='save',
                     help='directory to store checkpointed models')
     parser.add_argument('--language_eval', type=int, default=0,
@@ -81,6 +86,10 @@ def parse_opt():
                     help='How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')       
     parser.add_argument('--load_best_score', type=int, default=1,
                     help='Do we load previous best score when resuming training.')       
+
+    # misc
+    parser.add_argument('--id', type=str, default='',
+                    help='an id identifying this run/job. used in cross-val and appended when writing progress files')
 
     args = parser.parse_args()
 

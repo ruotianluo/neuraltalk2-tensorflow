@@ -10,9 +10,10 @@ import opts
 import models
 from dataloader import *
 import eval_utils
+import misc.utils as utils
 
 import os
-NUM_THREADS = int(os.environ['OMP_NUM_THREADS'])
+NUM_THREADS = 2 #int(os.environ['OMP_NUM_THREADS'])
 
 #from ipdb import set_trace
 
@@ -27,9 +28,9 @@ def train(opt):
         with open(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl')) as f:
             infos = cPickle.load(f)
             saved_model_opt = infos['opt']
-            need_be_same=["rnn_type","rnn_size","num_layers","seq_length"]
+            need_be_same=["caption_model", "rnn_type", "rnn_size", "num_layers", "seq_length"]
             for checkme in need_be_same:
-                assert vars(saved_model_opt)[checkme]==vars(opt)[checkme],"Command line argument and saved model disagree on '%s' "%checkme
+                assert vars(saved_model_opt)[checkme] == vars(opt)[checkme], "Command line argument and saved model disagree on '%s' " % checkme
 
     iteration = infos.get('iter', 0)
     epoch = infos.get('epoch', 0)
@@ -39,7 +40,6 @@ def train(opt):
     loader.iterators = infos.get('iterators', loader.iterators)
     if opt.load_best_score == 1:
         best_val_score = infos.get('best_val_score', None)
-        
 
     model.build_model()
     model.build_generator()
@@ -47,12 +47,18 @@ def train(opt):
 
     with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
         # Initialize the variables, and restore the variables form checkpoint if there is.
-        # And initialize the writer
+        # and initialize the writer
         model.initialize(sess)
         
         # Assign the learning rate
-        sess.run(tf.assign(model.lr, opt.learning_rate * (opt.decay_rate ** epoch)))
-        sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate))
+        if epoch > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0:
+            frac = (epoch - opt.learning_rate_decay_start) / opt.learning_rate_decay_every
+            decay_factor = 0.5  ** frac
+            sess.run(tf.assign(model.lr, opt.learning_rate * decay_factor)) # set the decayed rate
+            sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate * decay_factor))
+        else:
+            sess.run(tf.assign(model.lr, opt.learning_rate))
+            sess.run(tf.assign(model.cnn_lr, opt.cnn_learning_rate))
         # Assure in training mode
         sess.run(tf.assign(model.training, True))
         sess.run(tf.assign(model.cnn_training, True))
@@ -123,6 +129,7 @@ def train(opt):
                     infos['opt'] = opt
                     infos['val_result_history'] = val_result_history
                     infos['loss_history'] = loss_history
+                    infos['vocab'] = loader.get_vocab()
                     with open(os.path.join(opt.checkpoint_path, 'infos_'+opt.id+'.pkl'), 'wb') as f:
                         cPickle.dump(infos, f)
 
@@ -168,7 +175,7 @@ def eval_split(sess, model, loader, eval_kwargs):
             seq = sess.run(model.generator, feed)
 
             #set_trace()
-            sents = loader.decode_sequence(seq)
+            sents = utils.decode_sequence(loader.get_vocab(), seq)
 
             for k, sent in enumerate(sents):
                 entry = {'image_id': data['infos'][k]['id'], 'caption': sent}

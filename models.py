@@ -11,8 +11,6 @@ from misc.ShowTellModel import ShowTellModel
 from misc.AttentionModel import AttentionModel
 from misc.ShowAttendTellModel import ShowAttendTellModel
 
-MAX_STEPS = 30
-
 def setup(opt):
     
     # check compatibility if training is continued from previously saved model
