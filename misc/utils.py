@@ -1,3 +1,7 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import tensorflow as tf
 import collections
 import six
@@ -35,8 +39,8 @@ def clip_by_value(t_list, clip_value_min, clip_value_max, name=None):
 
 # Truncate the list of beam given a maximum length
 def truncate_list(l, max_len):
-    if num == -1:
-        num = len(l)
+    if max_len == -1:
+        max_len = len(l)
     return l[:min(len(l),  max_len)]
 
 # Turn nested state into a flattened list

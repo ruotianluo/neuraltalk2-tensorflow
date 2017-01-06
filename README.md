@@ -13,11 +13,13 @@ Currently if you want to use my code, you need to train the model from scratch (
 - ~~Finetuning VGG seems doesn't work. Need to be fixed.~~
 - ~~No need to initialize from npy when having saved weight.~~
 - Tensorflow stype file loading. (Multi-thread image loading)
-- Test of stacked LSTM. and also GRUs
+- ~~Test of stacked LSTM. and also GRUs~~
 - Pretrained model
-- Test code on single image
+- ~~Test code on single image~~
 - Schedule sampling
-- sample_max
+- ~~sample_max~~
+- ~~eval on unseen images~~
+- eval on test
 
 # Requirements
 Python 2.7
@@ -65,9 +67,31 @@ If you'd like to evaluate BLEU/METEOR/CIDEr scores during training in addition t
 
 **A few notes on training.** To give you an idea, with the default settings one epoch of MS COCO images is about 7500 iterations. 1 epoch of training (with no finetuning - notice this is the default) takes about 45 minutes and results in validation loss ~2.7 and CIDEr score of ~0.5. By iteration 50,000 CIDEr climbs up to about 0.65 (validation loss at about 2.4). 
 
-Finetuning is not supported yet.
+### Caption images after training
 
-# Acknowledge
+In this case you want to run the evaluation script on a pretrained model checkpoint. 
+I trained a decent one on the [MS COCO dataset](http://mscoco.org/) that you can run on your images.
+The pretrained checkpoint can be downloaded here: [pretrained checkpoint link](http://cs.stanford.edu/people/karpathy/neuraltalk2/checkpoint_v1.zip) (600MB). It's large because it contains the weights of a finetuned VGGNet. Now place all your images of interest into a folder, e.g. `blah`, and run
+the eval script:
+
+```bash
+$ python eval.py --model model.ckpt-**** --infos_path infos_<id>.pkl --image_folder <image_folder> --num_images 10
+```
+
+This tells the `eval` script to run up to 10 images from the given folder. If you have a big GPU you can speed up the evaluation by increasing `batch_size` (default = 1). Use `-num_images -1` to process all images. The eval script will create an `vis.json` file inside the `vis` folder, which can then be visualized with the provided HTML interface:
+
+```bash
+$ cd vis
+$ python -m SimpleHTTPServer
+```
+
+Now visit `localhost:8000` in your browser and you should see your predicted captions.
+
+**Beam Search**. Beam search is enabled by default because it increases the performance of the search for argmax decoding sequence. However, this is a little more expensive, so if you'd like to evaluate images faster, but at a cost of performance, use `--beam_size 1`. ~~For example, in one of my experiments beam size 2 gives CIDEr 0.922, and beam size 1 gives CIDEr 0.886.~~
+
+**Running on MSCOCO images**. If you train on MSCOCO (see how below), you will have generated preprocessed MSCOCO images, which you can use directly in the eval script. In this case simply leave out the `image_folder` option and the eval script and instead pass in the `input_h5`, `input_json` to your preprocessed files.
+
+# Acknowledgements
 I learned a lot from these following repositories.
 
 - [neuraltalk2](https://github.com/karpathy/neuraltalk2)(of course)
