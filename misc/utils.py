@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import tensorflow.contrib.slim as slim
 import collections
 import six
 
@@ -96,3 +97,42 @@ def decode_sequence(ix_to_word, seq):
                 break
         out.append(txt)
     return out
+
+def get_initial_state(input, state_size, scope = 'init_state'):
+    """
+    Recursively initialize the first state.
+
+    state_size is a nested of tuple and LSTMStateTuple and integer.
+        
+    It is so complicated because we use state_is_tuple
+    """
+
+    with tf.variable_scope(scope):
+        if isinstance(state_size, tf.nn.rnn_cell.LSTMStateTuple):
+            c = slim.fully_connected(input, state_size.c, activation_fn=tf.nn.tanh, scope='LSTM_c')
+            h = slim.fully_connected(input, state_size.h, activation_fn=tf.nn.tanh, scope='LSTM_h')
+            return tf.nn.rnn_cell.LSTMStateTuple(c,h)
+        elif isinstance(state_size, tuple):
+            result = [get_initial_state(input, state_size[i], "layer_"+str(i)) for i in xrange(len(state_size))]
+            return tuple(result)
+        elif isinstance(state_size, int):
+            return slim.fully_connected(input, state_size, activation_fn=tf.nn.tanh, scope='state')
+
+def expand_feat(input, multiples, scope = 'expand_feat'):
+    """
+    Expand the dimension of states;
+    According to multiples.
+
+    Similar reason why it's so complicated.
+    """
+    with tf.variable_scope(scope):
+        if isinstance(input, tf.nn.rnn_cell.LSTMStateTuple):
+            c = expand_feat(input.c, multiples, scope='expand_LSTM_c')
+            h = expand_feat(input.h, multiples, scope='expand_LSTM_c')
+            return tf.nn.rnn_cell.LSTMStateTuple(c,h)
+        elif isinstance(input, tuple):
+            result = [expand_feat(input[i], multiples, "expand_layer_"+str(i)) for i in xrange(len(input))]
+            return tuple(result)
+        else:
+            return tf.reshape(tf.tile(tf.expand_dims(input, 1), [1, multiples, 1]), [tf.shape(input)[0] * multiples, input.get_shape()[1].value])
+

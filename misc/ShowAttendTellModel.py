@@ -1,3 +1,7 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import os
@@ -7,24 +11,21 @@ import copy
 import numpy as np
 import misc.utils as utils
 
+# The maximimum step during generation
 MAX_STEPS = 30
 
 class ShowAttendTellModel():
 
-    def init_weight(self, dim_in, dim_out, name=None, stddev=1.0):
-        return tf.Variable(tf.truncated_normal([dim_in, dim_out], stddev=stddev/math.sqrt(float(dim_in))), name=name)
-
-    def init_bias(self, dim_out, name=None):
-        return tf.Variable(tf.zeros([dim_out]), name=name)
-
     def initialize(self, sess):
-        sess.run(tf.initialize_all_variables())
-        # Saver
-        self.saver = tf.train.Saver(tf.trainable_variables(), max_to_keep=10)
-        if self.opt.start_from is not None:
+        # Initialize the variables
+        sess.run(tf.global_variables_initializer())
+        # Initialize the saver
+        self.saver = tf.train.Saver(tf.trainable_variables(), max_to_keep=1)
+        # Load weights from the checkpoint
+        if vars(self.opt).get('start_from', None):
             self.saver.restore(sess, self.opt.ckpt.model_checkpoint_path)
-
-        self.summary_writer = tf.train.SummaryWriter(self.opt.checkpoint_path, sess.graph)
+        # Initialize the summary writer
+        self.summary_writer = tf.summary.FileWriter(self.opt.checkpoint_path, sess.graph)
 
     def __init__(self, opt):
         self.vocab_size = opt.vocab_size
@@ -35,23 +36,22 @@ class ShowAttendTellModel():
         self.seq_length = opt.seq_length
         self.vocab_size = opt.vocab_size
         self.seq_per_img = opt.seq_per_img
-        #self.batch_size = opt.batch_size
 
         self.opt = opt
 
         # Variable indicating in training mode or evaluation mode
         self.training = tf.Variable(True, trainable = False, name = "training")
 
-        # Input varaibles
+        # Input variables
         self.images = tf.placeholder(tf.float32, [None, 224, 224, 3], name = "images")
         self.labels = tf.placeholder(tf.int32, [None, self.seq_length + 2], name = "labels")
         self.masks = tf.placeholder(tf.float32, [None, self.seq_length + 2], name = "masks")
 
-        # VGG 16
-        if self.opt.start_from is not None:
+        # Build CNN
+        if vars(self.opt).get('start_from', None):
             cnn_weight = None
         else:
-            cnn_weight = self.opt.cnn_weight
+            cnn_weight = vars(self.opt).get('cnn_weight', None)
         if self.opt.cnn_model == 'vgg16':
             self.cnn = vgg.Vgg16(cnn_weight)
         if self.opt.cnn_model == 'vgg19':
@@ -70,12 +70,11 @@ class ShowAttendTellModel():
         # Variable in language model
         with tf.variable_scope("rnnlm"):
             # Word Embedding table
-            #with tf.device("/cpu:0"):
             self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
 
-            #
+            # Variables for mapping back to logits
             self.embed_word_W = tf.Variable(tf.random_uniform([self.rnn_size, self.vocab_size + 1], -0.1, 0.1), name='embed_word_W')
-            self.embed_word_b = self.init_bias(self.vocab_size + 1, name='embed_word_b')
+            self.embed_word_b = tf.Variable(tf.zeros([self.vocab_size + 1]), name='embed_word_b')
 
             # RNN cell
             if opt.rnn_type == 'rnn':
@@ -87,59 +86,29 @@ class ShowAttendTellModel():
             else:
                 raise Exception("RNN type not supported: {}".format(opt.rnn_type))
 
+            # keep_prob is a function of training flag
             self.keep_prob = tf.cond(self.training, 
                                 lambda : tf.constant(1 - self.drop_prob_lm),
                                 lambda : tf.constant(1.0), name = 'keep_prob')
 
-            self.basic_cell = cell = tf.nn.rnn_cell.DropoutWrapper(cell_fn(self.rnn_size, state_is_tuple = True), 1.0, self.keep_prob)
-
-            self.cell = tf.nn.rnn_cell.MultiRNNCell([cell] * opt.num_layers, state_is_tuple = True)
-
-    def get_initial_state(self, input, state_size, scope = 'init_state'):
-        with tf.variable_scope(scope):
-            if isinstance(state_size, tf.nn.rnn_cell.LSTMStateTuple):
-                c = slim.fully_connected(input, state_size.c, activation_fn=tf.nn.tanh, scope='LSTM_c')
-                h = slim.fully_connected(input, state_size.h, activation_fn=tf.nn.tanh, scope='LSTM_h')
-                return tf.nn.rnn_cell.LSTMStateTuple(c,h)
-            elif isinstance(state_size, tuple):
-                result = [self.get_initial_state(input, state_size[i], "layer_"+str(i)) for i in xrange(len(state_size))]
-                return tuple(result)
-            elif isinstance(state_size, int):
-                return slim.fully_connected(input, state_size, activation_fn=tf.nn.tanh, scope='state')
-
-    def expand_feat(self, input, scope = 'expand_feat'):
-        with tf.variable_scope(scope):
-            if isinstance(input, tf.nn.rnn_cell.LSTMStateTuple):
-                c = self.expand_feat(input.c, scope='expand_LSTM_c')
-                h = self.expand_feat(input.h, scope='expand_LSTM_c')
-                return tf.nn.rnn_cell.LSTMStateTuple(c,h)
-            elif isinstance(input, tuple):
-                result = [self.expand_feat(input[i], "expand_layer_"+str(i)) for i in xrange(len(input))]
-                return tuple(result)
-            else:
-                return tf.reshape(tf.tile(tf.expand_dims(input, 1), [1, self.seq_per_img, 1]), [tf.shape(input)[0] * self.seq_per_img, input.get_shape()[1].value])
-
-    def last_hidden_vec(self, state):
-        if isinstance(state, tuple):
-            return self.last_hidden_vec(state[len(state) - 1])
-        elif isinstance(state, tf.nn.rnn_cell.LSTMStateTuple):
-            return state.h
-        else:
-            return state
+            # basic cell has dropout wrapper
+            self.basic_cell = cell = tf.nn.rnn_cell.DropoutWrapper(cell_fn(self.rnn_size), 1.0, self.keep_prob)
+            # cell is the final cell of each timestep
+            self.cell = tf.nn.rnn_cell.MultiRNNCell([cell] * opt.num_layers)
 
     def build_model(self):
         with tf.name_scope("batch_size"):
+            # Get batch_size from the first dimension of self.images
             self.batch_size = tf.shape(self.images)[0]
         with tf.variable_scope("rnnlm"):
-            #flattened_ctx = tf.reshape(self.context, [self.batch_size, tf.shape(self.context)[1]*tf.shape(self.context)[2],tf.shape(self.context)[3]])
+            # Flatten the context
             flattened_ctx = tf.reshape(self.context, [self.batch_size, 196, 512])
             ctx_mean = tf.reduce_mean(flattened_ctx, 1)
-
-            initial_state = self.get_initial_state(ctx_mean, self.cell.state_size)
+            
+            # Initialize the first hidden state with the mean context
+            initial_state = utils.get_initial_state(ctx_mean, self.cell.state_size)
             # Replicate self.seq_per_img times for each state and image embedding
-            self.initial_state = initial_state = self.expand_feat(initial_state)
-            #self.flattened_ctx = flattened_ctx = tf.reshape(tf.tile(tf.expand_dims(flattened_ctx, 1), [1, self.seq_per_img, 1, 1]), 
-            #    [self.batch_size * self.seq_per_img, tf.shape(flattened_ctx)[1], tf.shape(flattened_ctx)[2]])
+            self.initial_state = initial_state = utils.expand_feat(initial_state, self.seq_per_img)
             self.flattened_ctx = flattened_ctx = tf.reshape(tf.tile(tf.expand_dims(flattened_ctx, 1), [1, self.seq_per_img, 1, 1]), 
                 [self.batch_size * self.seq_per_img, 196, 512])
 
@@ -149,16 +118,18 @@ class ShowAttendTellModel():
             rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
 
-            prev_h = self.last_hidden_vec(initial_state)
+            prev_h = utils.last_hidden_vec(initial_state)
 
             self.alphas = []
+            self.logits = []
             outputs = []
             for ind in range(self.seq_length + 1):
                 if ind > 0:
+                    # Reuse the variables after the first timestep.
                     tf.get_variable_scope().reuse_variables()
 
                 with tf.variable_scope("attention"):
-                    #projected state
+                    # projected state
                     pstate = slim.fully_connected(prev_h, 512, activation_fn = None, scope = 'h_att')
                     pctx_ = pctx + tf.expand_dims(pstate, 1)
                     pctx_ = tf.nn.tanh(pctx_)
@@ -167,62 +138,66 @@ class ShowAttendTellModel():
                     alpha = tf.nn.softmax(alpha)
                     self.alphas.append(alpha)
                     weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
-
-                cur_output, cur_state = self.cell(tf.concat(1, [weighted_context, rnn_inputs[ind]]), initial_state)
-                outputs.append(cur_output)
-                prev_h = cur_output
-
-            self.logits = [tf.matmul(output, self.embed_word_W) + self.embed_word_b for output in outputs]
-
+                
+                output, state = self.cell(tf.concat(1, [weighted_context, rnn_inputs[ind]]), initial_state)
+                # Save the current output for next time step attention
+                prev_h = output
+                # Get the score of each word in vocabulary, 0 is end token.
+                self.logits.append(slim.fully_connected(output, self.vocab_size + 1, activation_fn = None, scope = 'logit'))
+                
         with tf.variable_scope("loss"):
-            loss = tf.nn.seq2seq.sequence_loss_by_example(self.logits,
-                    [tf.squeeze(label, [1]) for label in tf.split(1, self.seq_length + 1, self.labels[:, 1:])], # self.labels[:,1:] is the target
+            loss = tf.nn.seq2seq.sequence_loss_by_example(
+                    self.logits,
+                    [tf.squeeze(label, [1]) for label in tf.split(1, self.seq_length + 1, self.labels[:, 1:])], # self.labels[:,1:] is the target; ignore the first start token
                     [tf.squeeze(mask, [1]) for mask in tf.split(1, self.seq_length + 1, self.masks[:, 1:])])
             self.cost = tf.reduce_mean(loss)
 
-        self.final_state = cur_state
+        self.final_state = state
         self.lr = tf.Variable(0.0, trainable=False)
         self.cnn_lr = tf.Variable(0.0, trainable=False)
 
         # Collect the rnn variables, and create the optimizer of rnn
         tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='rnnlm')
         grads = utils.clip_by_value(tf.gradients(self.cost, tvars), -self.opt.grad_clip, self.opt.grad_clip)
-        #grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars),
-        #        self.opt.grad_clip)
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
 
         # Collect the cnn variables, and create the optimizer of cnn
         cnn_tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='cnn')
         cnn_grads = utils.clip_by_value(tf.gradients(self.cost, cnn_tvars), -self.opt.grad_clip, self.opt.grad_clip)
-        #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
-        #        self.opt.grad_clip)
         cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
         self.cnn_train_op = cnn_optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
-        tf.scalar_summary('training loss', self.cost)
-        tf.scalar_summary('learning rate', self.lr)
-        tf.scalar_summary('cnn learning rate', self.cnn_lr)
-        self.summaries = tf.merge_all_summaries()
+        tf.summary.scalar('training loss', self.cost)
+        tf.summary.scalar('learning rate', self.lr)
+        tf.summary.scalar('cnn learning rate', self.cnn_lr)
+        self.summaries = tf.summary.merge_all()
 
     def build_generator(self):
+        """
+        Generator for generating captions
+        Support sample max or sample from distribution
+        No Beam search here; beam search is in decoder
+        """
+        # Variables for the sample setting
+        self.sample_max = tf.Variable(True, trainable = False, name = "sample_max")
+        self.sample_temperature = tf.Variable(1.0, trainable = False, name = "temperature")
+
+        self.generator = []
         with tf.variable_scope("rnnlm"):
-            #flattened_ctx = tf.reshape(self.context, [self.batch_size, tf.shape(self.context)[1]*tf.shape(self.context)[2],tf.shape(self.context)[3]])
             flattened_ctx = tf.reshape(self.context, [self.batch_size, 196, 512])
             ctx_mean = tf.reduce_mean(flattened_ctx, 1)
 
             tf.get_variable_scope().reuse_variables()
 
-            initial_state = self.get_initial_state(ctx_mean, self.cell.state_size)
+            initial_state = utils.get_initial_state(ctx_mean, self.cell.state_size)
 
             #projected context
             pctx = slim.fully_connected(flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
 
-            #rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
-            #rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
             rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32))
 
-            prev_h = self.last_hidden_vec(initial_state)
+            prev_h = utils.last_hidden_vec(initial_state)
 
             self.g_alphas = []
             outputs = []
@@ -239,57 +214,37 @@ class ShowAttendTellModel():
                     self.g_alphas.append(alpha)
                     weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
 
-                cur_output, cur_state = self.cell(tf.concat(1, [weighted_context, rnn_input]), initial_state)
-                outputs.append(cur_output)
-                prev_h = cur_output
+                output, state = self.cell(tf.concat(1, [weighted_context, rnn_input]), initial_state)
+                outputs.append(output)
+                prev_h = output
 
-                prev_logit = tf.matmul(prev_h, self.embed_word_W) + self.embed_word_b
-                prev_symbol = tf.stop_gradient(tf.argmax(prev_logit, 1))
+                # Get the input of next timestep
+                prev_logit = slim.fully_connected(prev_h, self.vocab_size + 1, activation_fn = None, scope = 'logit')
+                prev_symbol = tf.stop_gradient(tf.cond(self.sample_max,
+                    lambda: tf.argmax(prev_logit, 1), # pick the word with largest probability as the input of next time step
+                    lambda: tf.squeeze(
+                        tf.multinomial(tf.nn.log_softmax(prev_logit) / self.sample_temperature, 1), 1))) # Sample from the distribution
+                self.generator.append(prev_symbol)
                 rnn_input = tf.nn.embedding_lookup(self.Wemb, prev_symbol)
             
             self.g_output = output = tf.reshape(tf.concat(1, outputs), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
             self.g_logits = logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b    
             self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, MAX_STEPS, self.vocab_size + 1])
 
-        self.generator = tf.argmax(probs, 2)
-
-
-    def get_placeholder_state(self, state_size, scope = 'placeholder_state'):
-        with tf.variable_scope(scope):
-            if isinstance(state_size, tf.nn.rnn_cell.LSTMStateTuple):
-                c = tf.placeholder(tf.float32, [None, state_size.c], name='LSTM_c')
-                h = tf.placeholder(tf.float32, [None, state_size.h], name='LSTM_h')
-                return tf.nn.rnn_cell.LSTMStateTuple(c,h)
-            elif isinstance(state_size, tuple):
-                result = [self.get_placeholder_state(state_size[i], "layer_"+str(i)) for i in xrange(len(state_size))]
-                return tuple(result)
-            elif isinstance(state_size, int):
-                return tf.placeholder(tf.float32, [None, state_size], name='state')
-
-    def flatten_state(self, state):
-        if isinstance(state, tf.nn.rnn_cell.LSTMStateTuple):
-            return [state.c, state.h]
-        elif isinstance(state, tuple):
-            result = []
-            for i in xrange(len(state)):
-                result += self.flatten_state(state[i])
-            return result
-        else:
-            return [state]
+        self.generator = tf.transpose(tf.reshape(tf.concat(0, self.generator), [MAX_STEPS, -1]))
 
     def build_decoder_rnn(self, first_step):
         with tf.variable_scope("rnnlm"):
-            #flattened_ctx = tf.reshape(self.context, [self.batch_size, tf.shape(self.context)[1]*tf.shape(self.context)[2],tf.shape(self.context)[3]])
             flattened_ctx = tf.reshape(self.context, [self.batch_size, 196, 512])
             ctx_mean = tf.reduce_mean(flattened_ctx, 1)
 
             tf.get_variable_scope().reuse_variables()
 
             if not first_step:
-                initial_state = self.get_placeholder_state(self.cell.state_size)
-                self.decoder_flattened_state = self.flatten_state(initial_state)
+                initial_state = utils.get_placeholder_state(self.cell.state_size)
+                self.decoder_flattened_state = utils.flatten_state(initial_state)
             else:
-                initial_state = self.get_initial_state(ctx_mean, self.cell.state_size)
+                initial_state = utils.get_initial_state(ctx_mean, self.cell.state_size)
 
             self.decoder_prev_word = tf.placeholder(tf.int32, [None])
 
@@ -301,7 +256,7 @@ class ShowAttendTellModel():
             #projected context
             pctx = slim.fully_connected(flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
 
-            prev_h = self.last_hidden_vec(initial_state)
+            prev_h = utils.last_hidden_vec(initial_state)
 
             alphas = []
             outputs = []
@@ -318,9 +273,9 @@ class ShowAttendTellModel():
                 weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
 
             output, state = self.cell(tf.concat(1, [weighted_context, rnn_input]), initial_state)
-            logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b
+            logits = slim.fully_connected(output, self.vocab_size + 1, activation_fn = None, scope = 'logit')
             decoder_probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, self.vocab_size + 1])
-            decoder_state = self.flatten_state(state)
+            decoder_state = utils.flatten_state(state)
         return [decoder_probs, decoder_state]
 
 
@@ -339,7 +294,7 @@ class ShowAttendTellModel():
         #   "state": RNN state when generating the last word of the candidate
         good_sentences = [] # store sentences already ended with <bos>
         cur_best_cand = [] # store current best candidates
-        highest_score = 0.0 # hightest log-likelihodd in good sentences
+        highest_score = - np.inf # hightest log-likelihodd in good sentences
         
         # Get the initial logit and state
         cand = {'indexes': [], 'score': 0}
@@ -373,16 +328,16 @@ class ShowAttendTellModel():
                     cand_pool.append(cand_e)
             # get final cand_pool
             cur_best_cand = sorted(cand_pool, key=lambda cand: cand['score'])
-            cur_best_cand = self.truncate_list(cur_best_cand, beam_size)
+            cur_best_cand = utils.truncate_list(cur_best_cand, beam_size)
 
             # move candidates end with <eos> to good_sentences or remove it
             cand_left = []
             for cand in cur_best_cand:
-                if len(good_sentences) > beam_size and cand['score'] > highest_score:
+                if len(good_sentences) > beam_size and - cand['score'] > highest_score:
                     continue # No need to expand that candidate
                 if cand['indexes'][-1] == 0: #end of sentence
                     good_sentences.append(cand)
-                    highest_score = max(highest_score, cand['score'])
+                    highest_score = max(highest_score, - cand['score'])
                 else:
                     cand_left.append(cand)
             cur_best_cand = cand_left
@@ -391,23 +346,18 @@ class ShowAttendTellModel():
 
         # Add candidate left in cur_best_cand to good sentences 
         for cand in cur_best_cand:
-            if len(good_sentences) > beam_size and cand['score'] > highest_score:
+            if len(good_sentences) > beam_size and - cand['score'] > highest_score:
                 continue
             if cand['indexes'][-1] != 0:
                 cand['indexes'].append(0)
             good_sentences.append(cand)
-            highest_score = max(highest_score, cand['score'])
+            highest_score = max(highest_score, - cand['score'])
             
         # Sort good sentences and return the final list
         good_sentences = sorted(good_sentences, key=lambda cand: cand['score'])
-        good_sentences = self.truncate_list(good_sentences, beam_size)
+        good_sentences = utils.truncate_list(good_sentences, beam_size)
 
         return [sent['indexes'] for sent in good_sentences]
-        
-    def truncate_list(self, l, num):
-        if num == -1:
-            num = len(l)
-        return l[:min(len(l), num)]
 
     def get_probs_init(self, img, sess):
         """Use the model to get initial logit"""
@@ -422,9 +372,10 @@ class ShowAttendTellModel():
         m = self.decoder_model_cont
         prev_word = np.array(prev_word, dtype='int32')
 
-        pointer = [self.images, self.decoder_prev_word] + self.decoder_flattened_state
+        # Feed images, input words, and the flattened state of previous time step.
+        placeholders = [self.images, self.decoder_prev_word] + self.decoder_flattened_state
         feeded = [img, prev_word] + prev_state
-        
-        probs, state = sess.run(m, {pointer[i]: feeded[i] for i in xrange(len(pointer))})
+
+        probs, state = sess.run(m, {placeholders[i]: feeded[i] for i in xrange(len(placeholders))})
                                                             
         return (probs, state)

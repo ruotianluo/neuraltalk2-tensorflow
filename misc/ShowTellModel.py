@@ -67,10 +67,6 @@ class ShowTellModel():
             # Word Embedding table
             self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
 
-            # Variables for mapping back to logits
-            self.embed_word_W = tf.Variable(tf.random_uniform([self.rnn_size, self.vocab_size + 1], -0.1, 0.1), name='embed_word_W')
-            self.embed_word_b = tf.Variable(tf.zeros([self.vocab_size + 1]), name='embed_word_b')
-
             # RNN cell
             if opt.rnn_type == 'rnn':
                 self.cell_fn = cell_fn = tf.nn.rnn_cell.BasicRNNCell
@@ -113,11 +109,10 @@ class ShowTellModel():
 
             outputs, last_state = tf.nn.seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=None)
             
-            #outputs = tf.concat(0, outputs[1:])
-            #self.logits = slim.fully_connected(outputs, self.vocab_size + 1, activation_fn = None, scope = 'logit')
-            #self.logits = tf.split(0, len(rnn_inputs) - 1, self.logits)
+            outputs = tf.concat(0, outputs[1:])
+            self.logits = slim.fully_connected(outputs, self.vocab_size + 1, activation_fn = None, scope = 'logit')
+            self.logits = tf.split(0, len(rnn_inputs) - 1, self.logits)
 
-            self.logits = [tf.matmul(output, self.embed_word_W) + self.embed_word_b for output in outputs[1:]]
         with tf.variable_scope("loss"):
             loss = tf.nn.seq2seq.sequence_loss_by_example(self.logits,
                     [tf.squeeze(label, [1]) for label in tf.split(1, self.seq_length + 1, self.labels[:, 1:])], # self.labels[:,1:] is the target
@@ -172,8 +167,7 @@ class ShowTellModel():
                 if i == 1:
                     return rnn_inputs[1]
                 with tf.variable_scope(rnnlm_scope):
-                    prev = tf.matmul(prev, self.embed_word_W) + self.embed_word_b
-                    #prev = slim.fully_connected(prev, self.vocab_size + 1, activation_fn = None, scope = 'logit')                
+                    prev = slim.fully_connected(prev, self.vocab_size + 1, activation_fn = None, scope = 'logit')                
                     prev_symbol = tf.stop_gradient(tf.cond(self.sample_max,
                         lambda: tf.argmax(prev, 1), # pick the word with largest probability as the input of next time step
                         lambda: tf.squeeze(
@@ -183,8 +177,7 @@ class ShowTellModel():
 
             outputs, last_state = tf.nn.seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
             self.g_output = output = tf.reshape(tf.concat(1, outputs[1:]), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
-            self.g_logits = logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b
-            #self.g_logits = logits = slim.fully_connected(outputs, self.vocab_size + 1, activation_fn = None, scope = 'logit')
+            self.g_logits = logits = slim.fully_connected(outputs, self.vocab_size + 1, activation_fn = None, scope = 'logit')
             self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, MAX_STEPS, self.vocab_size + 1])
 
         self.generator = tf.transpose(tf.reshape(tf.concat(0, self.generator), [MAX_STEPS - 1, -1]))
@@ -217,8 +210,7 @@ class ShowTellModel():
                 initial_state = self.cell.zero_state(batch_size, tf.float32)
 
             outputs, state = tf.nn.seq2seq.rnn_decoder([rnn_input], initial_state, self.cell)
-            logits = tf.matmul(outputs[0], self.embed_word_W) + self.embed_word_b
-            # logits = slim.fully_connected(outputs[0], self.vocab_size + 1, activation_fn = None, scope = 'logit')
+            logits = slim.fully_connected(outputs[0], self.vocab_size + 1, activation_fn = None, scope = 'logit')
             decoder_probs = tf.reshape(tf.nn.softmax(logits), [batch_size, self.vocab_size + 1])
             decoder_state = utils.flatten_state(state)
         # output the current word distribution and states
