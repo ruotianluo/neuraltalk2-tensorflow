@@ -62,7 +62,7 @@ class DataLoaderRaw():
         self.iterator = 0
 
     def get_batch(self, split, batch_size=None):
-        batch_size = batch_size or 5
+        batch_size = batch_size or self.batch_size
 
         # pick an index of the datapoint to load next
         img_batch = np.ndarray([batch_size, 224,224,3], dtype = 'float32')

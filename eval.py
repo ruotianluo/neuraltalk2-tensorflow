@@ -28,9 +28,9 @@ parser.add_argument('--model', type=str, default='',
 parser.add_argument('--infos_path', type=str, default='',
                 help='path to infos to evaluate')
 # Basic options
-parser.add_argument('--batch_size', type=int, default=1,
+parser.add_argument('--batch_size', type=int, default=0,
                 help='if > 0 then overrule, otherwise load from checkpoint.')
-parser.add_argument('--num_images', type=int, default=100,
+parser.add_argument('--num_images', type=int, default=-1,
                 help='how many images to use when periodically evaluating the loss? (-1 = all)')
 parser.add_argument('--language_eval', type=int, default=0,
                 help='Evaluate language as well (1 = yes, 0 = no)? BLEU/CIDEr/METEOR/ROUGE_L? requires coco-caption code from Github.')
@@ -40,18 +40,6 @@ parser.add_argument('--dump_json', type=int, default=1,
                 help='Dump json with predictions into vis folder? (1=yes,0=no)')
 parser.add_argument('--dump_path', type=int, default=0,
                 help='Write image paths along with predictions into vis json? (1=yes,0=no)')
-
-# Model settings
-parser.add_argument('--caption_model', type=str, default="show_tell",
-                help='show_tell, show_attend_tell, attention')
-parser.add_argument('--rnn_size', type=int, default=512,
-                help='size of the rnn in number of hidden nodes in each layer')
-parser.add_argument('--num_layers', type=int, default=1,
-                help='number of layers in the RNN')
-parser.add_argument('--rnn_type', type=str, default='lstm',
-                help='rnn, gru, or lstm')
-parser.add_argument('--input_encoding_size', type=int, default=512,
-                help='the encoding size of each token in the vocabulary, and the image.')
 
 # Sampling options
 parser.add_argument('--sample_max', type=int, default=1,
@@ -91,10 +79,13 @@ if len(opt.input_json) == 0:
     opt.input_json = infos['opt'].input_json
 if opt.batch_size == 0:
     opt.batch_size = infos['opt'].batch_size
-fetch = ["caption_model", "rnn_type", "rnn_size", "num_layers", "seq_length",
-    "input_encoding_size", "drop_prob_lm", "seq_per_img", "vocab_size", "cnn_model", "grad_clip"]
-for k in fetch: 
-  vars(opt).update({k: vars(infos['opt'])[k]}) # copy over options from model
+ignore = ["id", "batch_size", "beam_size", "start_from"]
+for k in vars(infos['opt']).keys():
+    if k not in ignore:
+        if k in vars(opt):
+            assert vars(opt)[k] == vars(infos['opt'])[k], k + ' option not consistent'
+        else:
+            vars(opt).update({k: vars(infos['opt'])[k]}) # copy over options from model
 
 vocab = infos['vocab'] # ix -> word mapping
 
@@ -110,16 +101,13 @@ if len(opt.image_folder) == 0:
 else:
   loader = DataLoaderRaw({'folder_path': opt.image_folder, 
                             'coco_json': opt.coco_json,
-                            'language_eval': opt.language_eval,
-                            'split': opt.split,
-                            'num_images': opt.num_images,
                             'batch_size': opt.batch_size})
 
 # Evaluation fun(ction)
 def eval_split(sess, model, loader, eval_kwargs):
     verbose = eval_kwargs.get('verbose', True)
     num_images = eval_kwargs.get('num_images', -1)
-    split = eval_kwargs.get('split', 1)
+    split = eval_kwargs.get('split', 'test')
     language_eval = eval_kwargs.get('language_eval', 0)
     dataset = eval_kwargs.get('dataset', 'coco')
 
@@ -141,7 +129,7 @@ def eval_split(sess, model, loader, eval_kwargs):
             n = n + 1
         else:
             data = loader.get_batch(split, opt.batch_size)
-            n = n + loader.batch_size
+            n = n + opt.batch_size
 
         #evaluate loss if we have the labels
         loss = 0
@@ -193,7 +181,12 @@ def eval_split(sess, model, loader, eval_kwargs):
 
         # if we wrapped around the split or used up val imgs budget then bail
         ix0 = data['bounds']['it_pos_now']
-        ix1 = min(data['bounds']['it_max'], num_images)
+        ix1 = data['bounds']['it_max']
+        if num_images != -1:
+            ix1 = min(ix1, num_images)
+        for i in range(n - ix1):
+            predictions.pop()
+
         if verbose:
             print('evaluating validation preformance... %d/%d (%f)' %(ix0 - 1, ix1, loss))
 
@@ -211,8 +204,10 @@ def eval_split(sess, model, loader, eval_kwargs):
     sess.run(tf.assign(model.cnn_training, True))
     return loss_sum/loss_evals, predictions, lang_stats
 
-
-with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
+tf_config = tf.ConfigProto()
+tf_config.intra_op_parallelism_threads=NUM_THREADS
+tf_config.gpu_options.allow_growth = True
+with tf.Session(config=tf_config) as sess:
     # Initilize the variables
     sess.run(tf.global_variables_initializer())
     # Load the model checkpoint to evaluate
@@ -223,7 +218,10 @@ with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS))
     sess.run(tf.assign(model.sample_max, opt.sample_max == 1))
     sess.run(tf.assign(model.sample_temperature, opt.temperature))
 
-    loss, split_predictions, lang_stats = eval_split(sess, model, loader, {'num_images': opt.num_images, 'split': opt.split})
+    loss, split_predictions, lang_stats = eval_split(sess, model, loader, 
+        {'num_images': opt.num_images,
+        'language_eval': opt.language_eval,
+        'split': opt.split})
 
 print('loss: ', loss)
 if lang_stats:

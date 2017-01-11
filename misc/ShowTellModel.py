@@ -128,7 +128,7 @@ class ShowTellModel():
         grads = utils.clip_by_value(tf.gradients(self.cost, tvars), -self.opt.grad_clip, self.opt.grad_clip)
         #grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars),
         #        self.opt.grad_clip)
-        optimizer = tf.train.AdamOptimizer(self.lr)
+        optimizer = utils.get_optimizer(self.opt, self.lr)
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
 
         # Collect the cnn variables, and create the optimizer of cnn
@@ -136,7 +136,7 @@ class ShowTellModel():
         cnn_grads = utils.clip_by_value(tf.gradients(self.cost, cnn_tvars), -self.opt.grad_clip, self.opt.grad_clip)
         #cnn_grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, cnn_tvars),
         #        self.opt.grad_clip)
-        cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
+        cnn_optimizer = utils.get_cnn_optimizer(self.opt, self.cnn_lr) 
         self.cnn_train_op = cnn_optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
         tf.summary.scalar('training loss', self.cost)
@@ -232,7 +232,7 @@ class ShowTellModel():
         #   "state": RNN state when generating the last word of the candidate
         good_sentences = [] # store sentences already ended with <eos>
         cur_best_cand = [] # store current best candidates
-        highest_score = - np.inf # hightest log-likelihodd in good sentences
+        highest_score = 0.0 # hightest log-likelihodd in good sentences
 
         # Get the initial logit and state
         probs_init, state_init = self.get_probs_init(img, sess)
@@ -266,11 +266,11 @@ class ShowTellModel():
             # move candidates end with <eos> to good_sentences or remove it
             cand_left = []
             for cand in cur_best_cand:
-                if len(good_sentences) > beam_size and - cand['score'] > highest_score:
+                if len(good_sentences) > beam_size and cand['score'] > highest_score:
                     continue # No need to expand that candidate
                 if cand['indexes'][-1] == 0: #end of sentence
                     good_sentences.append(cand)
-                    highest_score = max(highest_score, - cand['score'])
+                    highest_score = max(highest_score, cand['score'])
                 else:
                     cand_left.append(cand)
             cur_best_cand = cand_left
@@ -279,12 +279,12 @@ class ShowTellModel():
 
         # Add candidate left in cur_best_cand to good sentences 
         for cand in cur_best_cand:
-            if len(good_sentences) > beam_size and - cand['score'] > highest_score:
+            if len(good_sentences) > beam_size and cand['score'] > highest_score:
                 continue
             if cand['indexes'][-1] != 0:
                 cand['indexes'].append(0)
             good_sentences.append(cand)
-            highest_score = max(highest_score, - cand['score'])
+            highest_score = max(highest_score, cand['score'])
             
         # Sort good sentences and return the final list
         good_sentences = sorted(good_sentences, key=lambda cand: cand['score'])
@@ -308,6 +308,6 @@ class ShowTellModel():
         placeholders = [self.decoder_prev_word] + self.decoder_flattened_state
         feeded = [prev_word] + prev_state
         
-        probs, state = sess.run(m, {placeholders[i]: feeded[i] for i in xrange(len(pointer))})
+        probs, state = sess.run(m, {placeholders[i]: feeded[i] for i in xrange(len(placeholders))})
                                                             
         return (probs, state)

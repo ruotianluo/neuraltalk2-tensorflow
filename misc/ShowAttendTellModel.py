@@ -36,6 +36,7 @@ class ShowAttendTellModel():
         self.seq_length = opt.seq_length
         self.vocab_size = opt.vocab_size
         self.seq_per_img = opt.seq_per_img
+        self.att_hid_size = opt.att_hid_size
 
         self.opt = opt
 
@@ -64,17 +65,13 @@ class ShowAttendTellModel():
             self.context = self.cnn.conv5_3
         if self.opt.cnn_model == 'vgg19':
             self.context = self.cnn.conv5_4
-        
+        self.fc7 = self.cnn.drop7
         self.cnn_training = self.cnn.training
 
         # Variable in language model
         with tf.variable_scope("rnnlm"):
             # Word Embedding table
             self.Wemb = tf.Variable(tf.random_uniform([self.vocab_size + 1, self.input_encoding_size], -0.1, 0.1), name='Wemb')
-
-            # Variables for mapping back to logits
-            self.embed_word_W = tf.Variable(tf.random_uniform([self.rnn_size, self.vocab_size + 1], -0.1, 0.1), name='embed_word_W')
-            self.embed_word_b = tf.Variable(tf.zeros([self.vocab_size + 1]), name='embed_word_b')
 
             # RNN cell
             if opt.rnn_type == 'rnn':
@@ -96,6 +93,22 @@ class ShowAttendTellModel():
             # cell is the final cell of each timestep
             self.cell = tf.nn.rnn_cell.MultiRNNCell([cell] * opt.num_layers)
 
+    def get_alpha(self, prev_h, pctx):
+        # projected state
+        if self.att_hid_size == 0:
+            pstate = slim.fully_connected(prev_h, 1, activation_fn = None, scope = 'h_att') # (batch * seq_per_img) * 1
+            alpha = pctx + tf.expand_dims(pstate, 1) #(batch * seq_per_img) * 196 * 1
+            alpha = tf.squeeze(alpha, [2]) # (batch * seq_per_img) * 196
+            alpha = tf.nn.softmax(alpha)
+        else:
+            pstate = slim.fully_connected(prev_h, self.att_hid_size, activation_fn = None, scope = 'h_att') # (batch * seq_per_img) * att_hid_size
+            pctx_ = pctx + tf.expand_dims(pstate, 1) #(batch * seq_per_img) * 196 * att_hid_size
+            pctx_ = tf.nn.tanh(pctx_) # (batch * seq_per_img) * 196 * att_hid_size
+            alpha = slim.fully_connected(pctx_, 1, activation_fn = None, scope = 'alpha') # (batch * seq_per_img) * 196 * 1
+            alpha = tf.squeeze(alpha, [2]) # (batch * seq_per_img) * 196
+            alpha = tf.nn.softmax(alpha)
+        return alpha
+
     def build_model(self):
         with tf.name_scope("batch_size"):
             # Get batch_size from the first dimension of self.images
@@ -103,17 +116,21 @@ class ShowAttendTellModel():
         with tf.variable_scope("rnnlm"):
             # Flatten the context
             flattened_ctx = tf.reshape(self.context, [self.batch_size, 196, 512])
-            ctx_mean = tf.reduce_mean(flattened_ctx, 1)
             
             # Initialize the first hidden state with the mean context
-            initial_state = utils.get_initial_state(ctx_mean, self.cell.state_size)
+            initial_state = utils.get_initial_state(self.fc7, self.cell.state_size)
             # Replicate self.seq_per_img times for each state and image embedding
             self.initial_state = initial_state = utils.expand_feat(initial_state, self.seq_per_img)
             self.flattened_ctx = flattened_ctx = tf.reshape(tf.tile(tf.expand_dims(flattened_ctx, 1), [1, self.seq_per_img, 1, 1]), 
                 [self.batch_size * self.seq_per_img, 196, 512])
 
             #projected context
-            pctx = slim.fully_connected(self.flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
+            # This is used in attention module; do this outside the loop to reduce redundant computations
+            # with tf.variable_scope("attention"):
+            if self.att_hid_size == 0:
+                pctx = slim.fully_connected(self.flattened_ctx, 1, activation_fn = None, scope = 'ctx_att') # (batch * seq_per_img) * 196 * 1
+            else:
+                pctx = slim.fully_connected(self.flattened_ctx, self.att_hid_size, activation_fn = None, scope = 'ctx_att') # (batch * seq_per_img) * 196 * att_hid_size
 
             rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
@@ -123,23 +140,18 @@ class ShowAttendTellModel():
             self.alphas = []
             self.logits = []
             outputs = []
+            state = initial_state
             for ind in range(self.seq_length + 1):
                 if ind > 0:
                     # Reuse the variables after the first timestep.
                     tf.get_variable_scope().reuse_variables()
 
                 with tf.variable_scope("attention"):
-                    # projected state
-                    pstate = slim.fully_connected(prev_h, 512, activation_fn = None, scope = 'h_att')
-                    pctx_ = pctx + tf.expand_dims(pstate, 1)
-                    pctx_ = tf.nn.tanh(pctx_)
-                    alpha = slim.fully_connected(pctx_, 1, activation_fn = None, scope = 'alpha')
-                    alpha = tf.squeeze(alpha, [2])
-                    alpha = tf.nn.softmax(alpha)
+                    alpha = self.get_alpha(prev_h, pctx)
                     self.alphas.append(alpha)
                     weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
-                
-                output, state = self.cell(tf.concat(1, [weighted_context, rnn_inputs[ind]]), initial_state)
+                    
+                output, state = self.cell(tf.concat(1, [weighted_context, rnn_inputs[ind]]), state)
                 # Save the current output for next time step attention
                 prev_h = output
                 # Get the score of each word in vocabulary, 0 is end token.
@@ -159,13 +171,13 @@ class ShowAttendTellModel():
         # Collect the rnn variables, and create the optimizer of rnn
         tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='rnnlm')
         grads = utils.clip_by_value(tf.gradients(self.cost, tvars), -self.opt.grad_clip, self.opt.grad_clip)
-        optimizer = tf.train.AdamOptimizer(self.lr)
+        optimizer = utils.get_optimizer(self.opt, self.lr)
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
 
         # Collect the cnn variables, and create the optimizer of cnn
         cnn_tvars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='cnn')
         cnn_grads = utils.clip_by_value(tf.gradients(self.cost, cnn_tvars), -self.opt.grad_clip, self.opt.grad_clip)
-        cnn_optimizer = tf.train.AdamOptimizer(self.cnn_lr)     
+        cnn_optimizer = utils.get_cnn_optimizer(self.opt, self.cnn_lr) 
         self.cnn_train_op = cnn_optimizer.apply_gradients(zip(cnn_grads, cnn_tvars))
 
         tf.summary.scalar('training loss', self.cost)
@@ -186,14 +198,18 @@ class ShowAttendTellModel():
         self.generator = []
         with tf.variable_scope("rnnlm"):
             flattened_ctx = tf.reshape(self.context, [self.batch_size, 196, 512])
-            ctx_mean = tf.reduce_mean(flattened_ctx, 1)
 
             tf.get_variable_scope().reuse_variables()
 
-            initial_state = utils.get_initial_state(ctx_mean, self.cell.state_size)
+            initial_state = utils.get_initial_state(self.fc7, self.cell.state_size)
 
             #projected context
-            pctx = slim.fully_connected(flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
+            # This is used in attention module; do this outside the loop to reduce redundant computations
+            # with tf.variable_scope("attention"):
+            if self.att_hid_size == 0:
+                pctx = slim.fully_connected(flattened_ctx, 1, activation_fn = None, scope = 'ctx_att') # (batch) * 196 * 1
+            else:
+                pctx = slim.fully_connected(flattened_ctx, self.att_hid_size, activation_fn = None, scope = 'ctx_att') # (batch) * 196 * att_hid_size
 
             rnn_input = tf.nn.embedding_lookup(self.Wemb, tf.zeros([self.batch_size], tf.int32))
 
@@ -201,20 +217,15 @@ class ShowAttendTellModel():
 
             self.g_alphas = []
             outputs = []
+            state = initial_state
             for ind in range(MAX_STEPS):
 
                 with tf.variable_scope("attention"):
-                    #projected state
-                    pstate = slim.fully_connected(prev_h, 512, activation_fn = None, scope = 'h_att')
-                    pctx_ = pctx + tf.expand_dims(pstate, 1)
-                    pctx_ = tf.nn.tanh(pctx_)
-                    alpha = slim.fully_connected(pctx_, 1, activation_fn = None, scope = 'alpha')
-                    alpha = tf.squeeze(alpha, [2])
-                    alpha = tf.nn.softmax(alpha)
+                    alpha = self.get_alpha(prev_h, pctx)
                     self.g_alphas.append(alpha)
                     weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
 
-                output, state = self.cell(tf.concat(1, [weighted_context, rnn_input]), initial_state)
+                output, state = self.cell(tf.concat(1, [weighted_context, rnn_input]), state)
                 outputs.append(output)
                 prev_h = output
 
@@ -228,7 +239,7 @@ class ShowAttendTellModel():
                 rnn_input = tf.nn.embedding_lookup(self.Wemb, prev_symbol)
             
             self.g_output = output = tf.reshape(tf.concat(1, outputs), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
-            self.g_logits = logits = tf.matmul(output, self.embed_word_W) + self.embed_word_b    
+            self.g_logits = logits = slim.fully_connected(output, self.vocab_size + 1, activation_fn = None, scope = 'logit')
             self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, MAX_STEPS, self.vocab_size + 1])
 
         self.generator = tf.transpose(tf.reshape(tf.concat(0, self.generator), [MAX_STEPS, -1]))
@@ -236,7 +247,6 @@ class ShowAttendTellModel():
     def build_decoder_rnn(self, first_step):
         with tf.variable_scope("rnnlm"):
             flattened_ctx = tf.reshape(self.context, [self.batch_size, 196, 512])
-            ctx_mean = tf.reduce_mean(flattened_ctx, 1)
 
             tf.get_variable_scope().reuse_variables()
 
@@ -244,7 +254,7 @@ class ShowAttendTellModel():
                 initial_state = utils.get_placeholder_state(self.cell.state_size)
                 self.decoder_flattened_state = utils.flatten_state(initial_state)
             else:
-                initial_state = utils.get_initial_state(ctx_mean, self.cell.state_size)
+                initial_state = utils.get_initial_state(self.fc7, self.cell.state_size)
 
             self.decoder_prev_word = tf.placeholder(tf.int32, [None])
 
@@ -254,7 +264,12 @@ class ShowAttendTellModel():
                 rnn_input = tf.nn.embedding_lookup(self.Wemb, self.decoder_prev_word)
 
             #projected context
-            pctx = slim.fully_connected(flattened_ctx, 512, activation_fn = None, scope = 'ctx_att')
+            # This is used in attention module; do this outside the loop to reduce redundant computations
+            # with tf.variable_scope("attention"):
+            if self.att_hid_size == 0:
+                pctx = slim.fully_connected(flattened_ctx, 1, activation_fn = None, scope = 'ctx_att') # (batch * seq_per_img) * 196 * 1
+            else:
+                pctx = slim.fully_connected(flattened_ctx, self.att_hid_size, activation_fn = None, scope = 'ctx_att') # (batch * seq_per_img) * 196 * att_hid_size
 
             prev_h = utils.last_hidden_vec(initial_state)
 
@@ -262,13 +277,7 @@ class ShowAttendTellModel():
             outputs = []
 
             with tf.variable_scope("attention"):
-                #projected state
-                pstate = slim.fully_connected(prev_h, 512, activation_fn = None, scope = 'h_att')
-                pctx_ = pctx + tf.expand_dims(pstate, 1)
-                pctx_ = tf.nn.tanh(pctx_)
-                alpha = slim.fully_connected(pctx_, 1, activation_fn = None, scope = 'alpha')
-                alpha = tf.squeeze(alpha, [2])
-                alpha = tf.nn.softmax(alpha)
+                alpha = self.get_alpha(prev_h, pctx)
                 alphas.append(alpha)
                 weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
 
@@ -278,12 +287,11 @@ class ShowAttendTellModel():
             decoder_state = utils.flatten_state(state)
         return [decoder_probs, decoder_state]
 
-
     def build_decoder(self):
         self.decoder_model_init = self.build_decoder_rnn(True)
         self.decoder_model_cont = self.build_decoder_rnn(False)
 
-    def decode(self, img, beam_size, sess, max_steps=30):
+    def decode(self, img, beam_size, sess, max_steps=MAX_STEPS):
         """Decode an image with a sentences."""
         
         # Initilize beam search variables
@@ -294,7 +302,7 @@ class ShowAttendTellModel():
         #   "state": RNN state when generating the last word of the candidate
         good_sentences = [] # store sentences already ended with <bos>
         cur_best_cand = [] # store current best candidates
-        highest_score = - np.inf # hightest log-likelihodd in good sentences
+        highest_score = 0.0 # hightest log-likelihodd in good sentences
         
         # Get the initial logit and state
         cand = {'indexes': [], 'score': 0}
@@ -333,11 +341,11 @@ class ShowAttendTellModel():
             # move candidates end with <eos> to good_sentences or remove it
             cand_left = []
             for cand in cur_best_cand:
-                if len(good_sentences) > beam_size and - cand['score'] > highest_score:
+                if len(good_sentences) > beam_size and cand['score'] > highest_score:
                     continue # No need to expand that candidate
                 if cand['indexes'][-1] == 0: #end of sentence
                     good_sentences.append(cand)
-                    highest_score = max(highest_score, - cand['score'])
+                    highest_score = max(highest_score, cand['score'])
                 else:
                     cand_left.append(cand)
             cur_best_cand = cand_left
@@ -346,12 +354,12 @@ class ShowAttendTellModel():
 
         # Add candidate left in cur_best_cand to good sentences 
         for cand in cur_best_cand:
-            if len(good_sentences) > beam_size and - cand['score'] > highest_score:
+            if len(good_sentences) > beam_size and cand['score'] > highest_score:
                 continue
             if cand['indexes'][-1] != 0:
                 cand['indexes'].append(0)
             good_sentences.append(cand)
-            highest_score = max(highest_score, - cand['score'])
+            highest_score = max(highest_score, cand['score'])
             
         # Sort good sentences and return the final list
         good_sentences = sorted(good_sentences, key=lambda cand: cand['score'])

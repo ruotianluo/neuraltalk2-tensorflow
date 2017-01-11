@@ -136,3 +136,34 @@ def expand_feat(input, multiples, scope = 'expand_feat'):
         else:
             return tf.reshape(tf.tile(tf.expand_dims(input, 1), [1, multiples, 1]), [tf.shape(input)[0] * multiples, input.get_shape()[1].value])
 
+def get_optimizer(opt, lr):
+    if opt.optim == 'rmsprop':
+        return tf.train.RMSPropOptimizer(lr, momentum=opt.optim_alpha, epsilon=opt.optim_epsilon)
+    elif opt.optim == 'adagrad':
+        return tf.train.AdagradOptimizer(lr)
+    elif opt.optim == 'sgd':
+        return tf.train.GradientDescentOptimizer(lr)
+    elif opt.optim == 'sgdm':
+        return tf.train.MomentumOptimizer(lr, opt.optim_alpha)
+    elif opt.optim == 'sgdmom':
+        return tf.train.MomentumOptimizer(lr, opt.optim_alpha, use_nesterov=True)
+    elif opt.optim == 'adam':
+        return tf.train.AdamOptimizer(lr, beta1=opt.optim_alpha, beta2=opt.optim_beta, epsilon=opt.optim_epsilon)
+    else:
+        raise Exception('bad option opt.optim')
+
+def get_cnn_optimizer(opt, cnn_lr):
+    if opt.cnn_optim == 'rmsprop':
+        return tf.train.RMSPropOptimizer(cnn_lr, momentum=opt.cnn_optim_alpha, epsilon=opt.optim_epsilon)
+    elif opt.cnn_optim == 'adagrad':
+        return tf.train.AdagradOptimizer(cnn_lr)
+    elif opt.cnn_optim == 'sgd':
+        return tf.train.GradientDescentOptimizer(cnn_lr)
+    elif opt.cnn_optim == 'sgdm':
+        return tf.train.MomentumOptimizer(cnn_lr, opt.cnn_optim_alpha)
+    elif opt.cnn_optim == 'sgdmom':
+        return tf.train.MomentumOptimizer(cnn_lr, opt.cnn_optim_alpha, use_nesterov=True)
+    elif opt.cnn_optim == 'adam':
+        return tf.train.AdamOptimizer(cnn_lr, beta1=opt.cnn_optim_alpha, beta2=opt.cnn_optim_beta, epsilon=opt.optim_epsilon)
+    else:
+        raise Exception('bad option opt.cnn_optim')

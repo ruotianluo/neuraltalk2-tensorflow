@@ -51,21 +51,23 @@ class DataLoader():
         self.label_end_ix = self.h5_file['label_end_ix'][:]
 
         # separate out indexes for each of the provided splits
-        self.split_ix = [[],[],[]]
+        self.split_ix = {'train': [], 'val': [], 'test': []}
         for ix in range(len(self.info['images'])):
             img = self.info['images'][ix]
             if img['split'] == 'train':
-                self.split_ix[0].append(ix)
+                self.split_ix['train'].append(ix)
             elif img['split'] == 'val':
-                self.split_ix[1].append(ix)
+                self.split_ix['val'].append(ix)
             elif img['split'] == 'test':
-                self.split_ix[2].append(ix)
+                self.split_ix['test'].append(ix)
+            elif opt.train_only == 0: # restval
+                self.split_ix['train'].append(ix)
 
-        print('assigned %d images to split train' %len(self.split_ix[0]))
-        print('assigned %d images to split val' %len(self.split_ix[1]))
-        print('assigned %d images to split test' %len(self.split_ix[2]))
+        print('assigned %d images to split train' %len(self.split_ix['train']))
+        print('assigned %d images to split val' %len(self.split_ix['val']))
+        print('assigned %d images to split test' %len(self.split_ix['test']))
 
-        self.iterators = [0, 0, 0] # train, val, test
+        self.iterators = {'train': 0, 'val': 0, 'test': 0}
 
     def get_vocab_size(self):
         return self.vocab_size

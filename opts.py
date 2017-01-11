@@ -30,6 +30,8 @@ def parse_opt():
                     help='rnn, gru, or lstm')
     parser.add_argument('--input_encoding_size', type=int, default=512,
                     help='the encoding size of each token in the vocabulary, and the image.')
+    parser.add_argument('--att_hid_size', type=int, default=512,
+                    help='the hidden size of the attention MLP; only useful in show_attend_tell; 0 if not using hidden layer')
 
     # Optimization: General
     parser.add_argument('--max_epochs', type=int, default=-1,
@@ -50,6 +52,8 @@ def parse_opt():
                     help='used when sample_max = 1, indicates number of beams in beam search. Usually 2 or 3 works well. More is not better. Set this to 1 for faster runtime but a bit worse performance.')
 
     #Optimization: for the Language Model
+    parser.add_argument('--optim', type=str, default='adam',
+                    help='what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
     parser.add_argument('--learning_rate', type=float, default=4e-4,
                     help='learning rate')
     parser.add_argument('--learning_rate_decay_start', type=int, default=-1, 
@@ -64,6 +68,8 @@ def parse_opt():
                     help='epsilon that goes into denominator for smoothing')
 
     #Optimization: for the CNN
+    parser.add_argument('--cnn_optim', type=str, default='adam',
+                    help='optimization to use for CNN')
     parser.add_argument('--cnn_optim_alpha', type=float, default=0.8,
                     help='alpha for momentum of CNN')
     parser.add_argument('--cnn_optim_beta', type=float, default=0.999,
@@ -90,6 +96,8 @@ def parse_opt():
     # misc
     parser.add_argument('--id', type=str, default='',
                     help='an id identifying this run/job. used in cross-val and appended when writing progress files')
+    parser.add_argument('--train_only', type=int, default=0,
+                    help='if true then use 80k, else use 110k')
 
     args = parser.parse_args()
 

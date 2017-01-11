@@ -48,7 +48,10 @@ def train(opt):
     model.build_generator()
     model.build_decoder()
 
-    with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
+    tf_config = tf.ConfigProto()
+    tf_config.intra_op_parallelism_threads=NUM_THREADS
+    tf_config.gpu_options.allow_growth = True
+    with tf.Session(config=tf_config) as sess:
         # Initialize the variables, and restore the variables form checkpoint if there is.
         # and initialize the writer
         model.initialize(sess)
@@ -69,7 +72,7 @@ def train(opt):
         while True:
             start = time.time()
             # Load data from train split (0)
-            data = loader.get_batch(0)
+            data = loader.get_batch('train')
             print('Read data:', time.time() - start)
 
             start = time.time()
@@ -98,7 +101,7 @@ def train(opt):
             if (iteration % opt.save_checkpoint_every == 0):
                 # eval model
                 eval_kwargs = {'val_images_use': opt.val_images_use,
-                                'split': 1, # 1 means validation split
+                                'split': 'val',
                                 'language_eval': opt.language_eval, 
                                 'dataset': opt.input_json}
                 val_loss, predictions, lang_stats = eval_split(sess, model, loader, eval_kwargs)
@@ -143,7 +146,7 @@ def train(opt):
 def eval_split(sess, model, loader, eval_kwargs):
     verbose = eval_kwargs.get('verbose', True)
     val_images_use = eval_kwargs.get('val_images_use', -1)
-    split = eval_kwargs.get('split', 1)
+    split = eval_kwargs.get('split', 'val')
     language_eval = eval_kwargs.get('language_eval', 1)
     dataset = eval_kwargs.get('dataset', 'coco')
 
@@ -196,7 +199,11 @@ def eval_split(sess, model, loader, eval_kwargs):
                     print('image %s: %s' %(entry['image_id'], sent))
         
         ix0 = data['bounds']['it_pos_now']
-        ix1 = min(data['bounds']['it_max'], val_images_use)
+        ix1 = data['bounds']['it_max']
+        if val_images_use != -1:
+            ix1 = min(ix1, val_images_use)
+        for i in range(n - ix1):
+            predictions.pop()
         if verbose:
             print('evaluating validation preformance... %d/%d (%f)' %(ix0 - 1, ix1, loss))
 

@@ -28,3 +28,5 @@ def setup(opt):
         return AttentionModel(opt)
     elif opt.caption_model == 'show_attend_tell':
         return ShowAttendTellModel(opt)
+    else:
+        raise Exception("Caption model not supported: {}".format(opt.caption_model))

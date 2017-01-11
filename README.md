@@ -20,6 +20,7 @@ Currently if you want to use my code, you need to train the model from scratch (
 - ~~sample_max~~
 - ~~eval on unseen images~~
 - eval on test
+- visualize attention map
 
 # Requirements
 Python 2.7
@@ -69,9 +70,7 @@ If you'd like to evaluate BLEU/METEOR/CIDEr scores during training in addition t
 
 ### Caption images after training
 
-In this case you want to run the evaluation script on a pretrained model checkpoint. 
-I trained a decent one on the [MS COCO dataset](http://mscoco.org/) that you can run on your images.
-The pretrained checkpoint can be downloaded here: [pretrained checkpoint link](http://cs.stanford.edu/people/karpathy/neuraltalk2/checkpoint_v1.zip) (600MB). It's large because it contains the weights of a finetuned VGGNet. Now place all your images of interest into a folder, e.g. `blah`, and run
+Now place all your images of interest into a folder, e.g. `blah`, and run
 the eval script:
 
 ```bash
