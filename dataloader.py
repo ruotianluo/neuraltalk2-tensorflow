@@ -18,7 +18,6 @@ class DataLoader():
         self.opt = opt
         self.batch_size = self.opt.batch_size
         self.seq_per_img = self.opt.seq_per_img
-        self.seq_length = self.opt.seq_length
 
         # load the json file which contains additional information about the dataset
         print('DataLoader loading json file: ', opt.input_json)

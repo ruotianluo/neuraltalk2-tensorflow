@@ -44,8 +44,6 @@ def parse_opt():
                     help='strength of dropout in the Language Model RNN')
     parser.add_argument('--finetune_cnn_after', type=int, default=-1,
                     help='After what iteration do we start finetuning the CNN? (-1 = disable; never finetune, 0 = finetune from start)')
-    parser.add_argument('--seq_length', type=int, default=16,
-                    help='RNN sequence length')
     parser.add_argument('--seq_per_img', type=int, default=5,
                     help='number of captions to sample for each image during training. Done for efficiency since CNN forward pass is expensive. E.g. coco has 5 sents/image')
     parser.add_argument('--beam_size', type=int, default=1,
@@ -100,5 +98,19 @@ def parse_opt():
                     help='if true then use 80k, else use 110k')
 
     args = parser.parse_args()
+
+    # Check if args are valid
+    assert args.rnn_size > 0, "rnn_size should be greater than 0"
+    assert args.num_layers > 0, "num_layers should be greater than 0"
+    assert args.input_encoding_size > 0, "input_encoding_size should be greater than 0"
+    assert args.batch_size > 0, "batch_size should be greater than 0"
+    assert args.drop_prob_lm >= 0 and args.drop_prob_lm < 1, "drop_prob_lm should be between 0 and 1"
+    assert args.seq_per_img > 0, "seq_per_img should be greater than 0"
+    assert args.beam_size > 0, "beam_size should be greater than 0"
+    assert args.save_checkpoint_every > 0, "save_checkpoint_every should be greater than 0"
+    assert args.losses_log_every > 0, "losses_log_every should be greater than 0"
+    assert args.language_eval == 0 or args.language_eval == 1, "language_eval should be 0 or 1"
+    assert args.load_best_score == 0 or args.load_best_score == 1, "language_eval should be 0 or 1"
+    assert args.train_only == 0 or args.train_only == 1, "language_eval should be 0 or 1"
 
     return args
