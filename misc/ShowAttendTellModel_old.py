@@ -75,11 +75,11 @@ class ShowAttendTellModel():
 
             # RNN cell
             if opt.rnn_type == 'rnn':
-                self.cell_fn = cell_fn = tf.nn.rnn_cell.BasicRNNCell
+                self.cell_fn = cell_fn = tf.contrib.rnn.BasicRNNCell
             elif opt.rnn_type == 'gru':
-                self.cell_fn = cell_fn = tf.nn.rnn_cell.GRUCell
+                self.cell_fn = cell_fn = tf.contrib.rnn.GRUCell
             elif opt.rnn_type == 'lstm':
-                self.cell_fn = cell_fn = tf.nn.rnn_cell.LSTMCell
+                self.cell_fn = cell_fn = tf.contrib.rnn.LSTMCell
             else:
                 raise Exception("RNN type not supported: {}".format(opt.rnn_type))
 
@@ -89,9 +89,9 @@ class ShowAttendTellModel():
                                 lambda : tf.constant(1.0), name = 'keep_prob')
 
             # basic cell has dropout wrapper
-            self.basic_cell = cell = tf.nn.rnn_cell.DropoutWrapper(cell_fn(self.rnn_size), 1.0, self.keep_prob)
+            self.basic_cell = cell = tf.contrib.rnn.DropoutWrapper(cell_fn(self.rnn_size), 1.0, self.keep_prob)
             # cell is the final cell of each timestep
-            self.cell = tf.nn.rnn_cell.MultiRNNCell([cell] * opt.num_layers)
+            self.cell = tf.contrib.rnn.MultiRNNCell([cell] * opt.num_layers)
 
     def get_alpha(self, prev_h, pctx):
         # projected state
@@ -133,7 +133,7 @@ class ShowAttendTellModel():
             else:
                 pctx = slim.fully_connected(self.flattened_ctx, self.att_hid_size, activation_fn = None, scope = 'ctx_att') # (batch * seq_per_img) * 196 * att_hid_size
 
-            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
+            rnn_inputs = tf.split(axis=1, num_or_size_splits=self.seq_length + 1, value=tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
 
             prev_h = utils.last_hidden_vec(initial_state)
@@ -152,17 +152,17 @@ class ShowAttendTellModel():
                     self.alphas.append(alpha)
                     weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
                     
-                output, state = self.cell(tf.concat(1, [weighted_context, rnn_inputs[ind]]), state)
+                output, state = self.cell(tf.concat(axis=1, values=[weighted_context, rnn_inputs[ind]]), state)
                 # Save the current output for next time step attention
                 prev_h = output
                 # Get the score of each word in vocabulary, 0 is end token.
                 self.logits.append(slim.fully_connected(output, self.vocab_size + 1, activation_fn = None, scope = 'logit'))
                 
         with tf.variable_scope("loss"):
-            loss = tf.nn.seq2seq.sequence_loss_by_example(
+            loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
                     self.logits,
-                    [tf.squeeze(label, [1]) for label in tf.split(1, self.seq_length + 1, self.labels[:, 1:])], # self.labels[:,1:] is the target; ignore the first start token
-                    [tf.squeeze(mask, [1]) for mask in tf.split(1, self.seq_length + 1, self.masks[:, 1:])])
+                    [tf.squeeze(label, [1]) for label in tf.split(axis=1, num_or_size_splits=self.seq_length + 1, value=self.labels[:, 1:])], # self.labels[:,1:] is the target; ignore the first start token
+                    [tf.squeeze(mask, [1]) for mask in tf.split(axis=1, num_or_size_splits=self.seq_length + 1, value=self.masks[:, 1:])])
             self.cost = tf.reduce_mean(loss)
 
         self.final_state = state
@@ -227,7 +227,7 @@ class ShowAttendTellModel():
                     self.g_alphas.append(alpha)
                     weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
 
-                output, state = self.cell(tf.concat(1, [weighted_context, rnn_input]), state)
+                output, state = self.cell(tf.concat(axis=1, values=[weighted_context, rnn_input]), state)
                 outputs.append(output)
                 prev_h = output
 
@@ -240,11 +240,11 @@ class ShowAttendTellModel():
                 self.generator.append(prev_symbol)
                 rnn_input = tf.nn.embedding_lookup(self.Wemb, prev_symbol)
             
-            self.g_output = output = tf.reshape(tf.concat(1, outputs), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
+            self.g_output = output = tf.reshape(tf.concat(axis=1, values=outputs), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
             self.g_logits = logits = slim.fully_connected(output, self.vocab_size + 1, activation_fn = None, scope = 'logit')
             self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, MAX_STEPS, self.vocab_size + 1])
 
-        self.generator = tf.transpose(tf.reshape(tf.concat(0, self.generator), [MAX_STEPS, -1]))
+        self.generator = tf.transpose(tf.reshape(tf.concat(axis=0, values=self.generator), [MAX_STEPS, -1]))
 
     def build_decoder_rnn(self, first_step):
         with tf.variable_scope("rnnlm"):
@@ -284,7 +284,7 @@ class ShowAttendTellModel():
                 alphas.append(alpha)
                 weighted_context = tf.reduce_sum(flattened_ctx * tf.expand_dims(alpha, 2), 1)
 
-            output, state = self.cell(tf.concat(1, [weighted_context, rnn_input]), initial_state)
+            output, state = self.cell(tf.concat(axis=1, values=[weighted_context, rnn_input]), initial_state)
             logits = slim.fully_connected(output, self.vocab_size + 1, activation_fn = None, scope = 'logit')
             decoder_probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, self.vocab_size + 1])
             decoder_state = utils.flatten_state(state)

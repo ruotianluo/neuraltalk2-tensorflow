@@ -25,7 +25,7 @@ Currently if you want to use my code, you need to train the model from scratch (
 # Requirements
 Python 2.7
 
-[Tensorflow 0.12](https://github.com/tensorflow/tensorflow), please follow the tensorflow website to install the tensorflow.
+[Tensorflow 1.0](https://github.com/tensorflow/tensorflow), please follow the tensorflow website to install the tensorflow.
 
 # Train your own network on COCO
 **(Copy from neuraltalk2)**

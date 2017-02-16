@@ -21,7 +21,7 @@ model = models.Model(opt)
 
 model.build_model()
 model.build_generator()
-tf.initialize_all_variables().run()
+tf.global_variables_initializer().run()
 sess.run(tf.assign(model.lr, 0.01))
 feed = {model.images: data['images'], model.labels: data['labels'], model.masks: data['masks'], model.keep_prob: 1.0}
 train_loss, _ = sess.run([model.cost, model.train_op], feed)

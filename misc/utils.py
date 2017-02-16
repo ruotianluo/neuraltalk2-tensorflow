@@ -47,7 +47,7 @@ def truncate_list(l, max_len):
 # Turn nested state into a flattened list
 # Used both for flattening the nested placeholder states and for output states value of previous time step
 def flatten_state(state):
-    if isinstance(state, tf.nn.rnn_cell.LSTMStateTuple):
+    if isinstance(state, tf.contrib.rnn.LSTMStateTuple):
         return [state.c, state.h]
     elif isinstance(state, tuple):
         result = []
@@ -61,10 +61,10 @@ def flatten_state(state):
 # Because states could be nested tuples or lists, so we get the states recursively.
 def get_placeholder_state(state_size, scope = 'placeholder_state'):
     with tf.variable_scope(scope):
-        if isinstance(state_size, tf.nn.rnn_cell.LSTMStateTuple):
+        if isinstance(state_size, tf.contrib.rnn.LSTMStateTuple):
             c = tf.placeholder(tf.float32, [None, state_size.c], name='LSTM_c')
             h = tf.placeholder(tf.float32, [None, state_size.h], name='LSTM_h')
-            return tf.nn.rnn_cell.LSTMStateTuple(c,h)
+            return tf.contrib.rnn.LSTMStateTuple(c,h)
         elif isinstance(state_size, tuple):
             result = [get_placeholder_state(state_size[i], "layer_"+str(i)) for i in xrange(len(state_size))]
             return tuple(result)
@@ -76,7 +76,7 @@ def get_placeholder_state(state_size, scope = 'placeholder_state'):
 def last_hidden_vec(state):
     if isinstance(state, tuple):
         return last_hidden_vec(state[len(state) - 1])
-    elif isinstance(state, tf.nn.rnn_cell.LSTMStateTuple):
+    elif isinstance(state, tf.contrib.rnn.LSTMStateTuple):
         return state.h
     else:
         return state
@@ -108,10 +108,10 @@ def get_initial_state(input, state_size, scope = 'init_state'):
     """
 
     with tf.variable_scope(scope):
-        if isinstance(state_size, tf.nn.rnn_cell.LSTMStateTuple):
+        if isinstance(state_size, tf.contrib.rnn.LSTMStateTuple):
             c = slim.fully_connected(input, state_size.c, activation_fn=tf.nn.tanh, scope='LSTM_c')
             h = slim.fully_connected(input, state_size.h, activation_fn=tf.nn.tanh, scope='LSTM_h')
-            return tf.nn.rnn_cell.LSTMStateTuple(c,h)
+            return tf.contrib.rnn.LSTMStateTuple(c,h)
         elif isinstance(state_size, tuple):
             result = [get_initial_state(input, state_size[i], "layer_"+str(i)) for i in xrange(len(state_size))]
             return tuple(result)
@@ -126,10 +126,10 @@ def expand_feat(input, multiples, scope = 'expand_feat'):
     Similar reason why it's so complicated.
     """
     with tf.variable_scope(scope):
-        if isinstance(input, tf.nn.rnn_cell.LSTMStateTuple):
+        if isinstance(input, tf.contrib.rnn.LSTMStateTuple):
             c = expand_feat(input.c, multiples, scope='expand_LSTM_c')
             h = expand_feat(input.h, multiples, scope='expand_LSTM_c')
-            return tf.nn.rnn_cell.LSTMStateTuple(c,h)
+            return tf.contrib.rnn.LSTMStateTuple(c,h)
         elif isinstance(input, tuple):
             result = [expand_feat(input[i], multiples, "expand_layer_"+str(i)) for i in xrange(len(input))]
             return tuple(result)

@@ -69,11 +69,11 @@ class ShowTellModel():
 
             # RNN cell
             if opt.rnn_type == 'rnn':
-                self.cell_fn = cell_fn = tf.nn.rnn_cell.BasicRNNCell
+                self.cell_fn = cell_fn = tf.contrib.rnn.BasicRNNCell
             elif opt.rnn_type == 'gru':
-                self.cell_fn = cell_fn = tf.nn.rnn_cell.GRUCell
+                self.cell_fn = cell_fn = tf.contrib.rnn.GRUCell
             elif opt.rnn_type == 'lstm':
-                self.cell_fn = cell_fn = tf.nn.rnn_cell.LSTMCell
+                self.cell_fn = cell_fn = tf.contrib.rnn.LSTMCell
             else:
                 raise Exception("RNN type not supported: {}".format(opt.rnn_type))
 
@@ -83,9 +83,9 @@ class ShowTellModel():
                                 lambda : tf.constant(1.0), name = 'keep_prob')
 
             # basic cell has dropout wrapper
-            self.basic_cell = cell = tf.nn.rnn_cell.DropoutWrapper(cell_fn(self.rnn_size), 1.0, self.keep_prob)
+            self.basic_cell = cell = tf.contrib.rnn.DropoutWrapper(cell_fn(self.rnn_size), 1.0, self.keep_prob)
             # cell is the final cell of each timestep
-            self.cell = tf.nn.rnn_cell.MultiRNNCell([cell] * opt.num_layers)
+            self.cell = tf.contrib.rnn.MultiRNNCell([cell] * opt.num_layers)
 
     def build_model(self):
         with tf.name_scope("batch_size"):
@@ -100,23 +100,23 @@ class ShowTellModel():
 
             # rnn_inputs is a list of input, each element is the input of rnn at each time step
             # time step 0 is the image embedding
-            rnn_inputs = tf.split(1, self.seq_length + 1, tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
+            rnn_inputs = tf.split(axis=1, num_or_size_splits=self.seq_length + 1, value=tf.nn.embedding_lookup(self.Wemb, self.labels[:,:self.seq_length + 1]))
             rnn_inputs = [tf.squeeze(input_, [1]) for input_ in rnn_inputs]
             rnn_inputs = [image_emb] + rnn_inputs
 
             # The initial sate is zero
             initial_state = self.cell.zero_state(self.batch_size * self.seq_per_img, tf.float32)
 
-            outputs, last_state = tf.nn.seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=None)
+            outputs, last_state = tf.contrib.legacy_seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=None)
             
-            outputs = tf.concat(0, outputs[1:])
+            outputs = tf.concat(axis=0, values=outputs[1:])
             self.logits = slim.fully_connected(outputs, self.vocab_size + 1, activation_fn = None, scope = 'logit')
-            self.logits = tf.split(0, len(rnn_inputs) - 1, self.logits)
+            self.logits = tf.split(axis=0, num_or_size_splits=len(rnn_inputs) - 1, value=self.logits)
 
         with tf.variable_scope("loss"):
-            loss = tf.nn.seq2seq.sequence_loss_by_example(self.logits,
-                    [tf.squeeze(label, [1]) for label in tf.split(1, self.seq_length + 1, self.labels[:, 1:])], # self.labels[:,1:] is the target
-                    [tf.squeeze(mask, [1]) for mask in tf.split(1, self.seq_length + 1, self.masks[:, 1:])])
+            loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(self.logits,
+                    [tf.squeeze(label, [1]) for label in tf.split(axis=1, num_or_size_splits=self.seq_length + 1, value=self.labels[:, 1:])], # self.labels[:,1:] is the target
+                    [tf.squeeze(mask, [1]) for mask in tf.split(axis=1, num_or_size_splits=self.seq_length + 1, value=self.masks[:, 1:])])
             self.cost = tf.reduce_mean(loss)
         
         self.final_state = last_state
@@ -175,12 +175,12 @@ class ShowTellModel():
                     self.generator.append(prev_symbol)
                     return tf.nn.embedding_lookup(self.Wemb, prev_symbol)
 
-            outputs, last_state = tf.nn.seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
-            self.g_output = output = tf.reshape(tf.concat(1, outputs[1:]), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
+            outputs, last_state = tf.contrib.legacy_seq2seq.rnn_decoder(rnn_inputs, initial_state, self.cell, loop_function=loop)
+            self.g_output = output = tf.reshape(tf.concat(axis=1, values=outputs[1:]), [-1, self.rnn_size]) # outputs[1:], because we don't calculate loss on time 0.
             self.g_logits = logits = slim.fully_connected(outputs, self.vocab_size + 1, activation_fn = None, scope = 'logit')
             self.g_probs = probs = tf.reshape(tf.nn.softmax(logits), [self.batch_size, MAX_STEPS, self.vocab_size + 1])
 
-        self.generator = tf.transpose(tf.reshape(tf.concat(0, self.generator), [MAX_STEPS - 1, -1]))
+        self.generator = tf.transpose(tf.reshape(tf.concat(axis=0, values=self.generator), [MAX_STEPS - 1, -1]))
 
     # Decoders are used for beam search. Much complicated than sample max.
     # Decoder decodes the image one time step at a time
@@ -209,7 +209,7 @@ class ShowTellModel():
                 # The states for the first step are zero.
                 initial_state = self.cell.zero_state(batch_size, tf.float32)
 
-            outputs, state = tf.nn.seq2seq.rnn_decoder([rnn_input], initial_state, self.cell)
+            outputs, state = tf.contrib.legacy_seq2seq.rnn_decoder([rnn_input], initial_state, self.cell)
             logits = slim.fully_connected(outputs[0], self.vocab_size + 1, activation_fn = None, scope = 'logit')
             decoder_probs = tf.reshape(tf.nn.softmax(logits), [batch_size, self.vocab_size + 1])
             decoder_state = utils.flatten_state(state)
